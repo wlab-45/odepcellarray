@@ -1,4 +1,3 @@
-
 import pygame
 import sys
 import tkinter as tk
@@ -8,23 +7,39 @@ class CircleAnimator:
     def __init__(self):
         pygame.init()
         
+        # 獲取所有顯示器信息
+        self.displays = pygame.display.get_num_displays()
+        if self.displays < 3:
+            print("需要至少三個顯示器！")
+            sys.exit(1)
+            
         # 獲取顯示器信息
         display_info = pygame.display.Info()
         self.WIDTH = 1920  # 可以根據實際螢幕調整
         self.HEIGHT = 1080
         
-        # 設置在第二個顯示器上顯示
-        self.screen = pygame.display.set_mode(
+        # 創建兩個視窗：一個用於選取位置（第二螢幕），一個用於投影（第三螢幕）
+        # 選取位置的視窗（第二螢幕）
+        self.selection_screen = pygame.display.set_mode(
             (self.WIDTH, self.HEIGHT),
             pygame.FULLSCREEN | pygame.HWSURFACE,
-            display=1  # 使用第二個顯示器 (索引從0開始)
+            display=1  # 第二個顯示器
+        )
+        
+        # 投影視窗（第三螢幕）
+        # 創建第二個視窗需要使用額外的display surface
+        self.projection_surface = pygame.Surface((self.WIDTH, self.HEIGHT))
+        self.projection_screen = pygame.display.set_mode(
+            (self.WIDTH, self.HEIGHT),
+            pygame.FULLSCREEN | pygame.HWSURFACE,
+            display=2  # 第三個顯示器
         )
         
         self.clock = pygame.time.Clock()
         self.circles = []
         self.is_animating = False
         
-        # 創建參數輸入窗口
+        # 創建參數輸入窗口（在主螢幕）
         self.setup_parameter_window()
         
     def setup_parameter_window(self):
@@ -50,7 +65,7 @@ class CircleAnimator:
         # 添加說明文字
         self.instruction_label = ttk.Label(
             self.root, 
-            text="請在黑色畫布上點擊要生成圓圈的位置\n按空白鍵開始動畫\n按ESC退出",
+            text="請在第二螢幕的黑色畫布上點擊要生成圓圈的位置\n圓圈將在第三螢幕上投影\n按空白鍵開始動畫\n按ESC退出",
             justify=tk.CENTER
         )
         self.instruction_label.grid(row=3, column=0, columnspan=2, pady=10)
@@ -73,18 +88,18 @@ class CircleAnimator:
         except ValueError as e:
             print(f"請輸入有效的數值: {e}")
     
-    def draw_circles(self):
+    def draw_circles(self, screen):
         for circle in self.circles:
             # 繪製外圈（白色）
             pygame.draw.circle(
-                self.screen,
+                screen,
                 (255, 255, 255),
                 (int(circle['pos'][0]), int(circle['y'])),
                 int(circle['outer_radius'])
             )
             # 繪製內圈（黑色）
             pygame.draw.circle(
-                self.screen,
+                screen,
                 (0, 0, 0),
                 (int(circle['pos'][0]), int(circle['y'])),
                 int(circle['inner_radius'])
@@ -105,7 +120,7 @@ class CircleAnimator:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN and not self.is_animating:
-                    # 當點擊時創建新圓圈
+                    # 當點擊時在選取視窗創建新圓圈
                     self.create_circle(pygame.mouse.get_pos())
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
@@ -114,10 +129,16 @@ class CircleAnimator:
                         # 按空白鍵開始動畫
                         self.is_animating = True
             
-            # 更新畫面
-            self.screen.fill((0, 0, 0))  # 清空畫面
+            # 更新選取視窗
+            self.selection_screen.fill((0, 0, 0))  # 清空畫面
+            if not self.is_animating:
+                self.draw_circles(self.selection_screen)  # 在選取視窗顯示靜態圓圈
+            pygame.display.update()
+            
+            # 更新投影視窗
+            self.projection_screen.fill((0, 0, 0))  # 清空畫面
             self.update_circles()
-            self.draw_circles()
+            self.draw_circles(self.projection_screen)  # 在投影視窗顯示動畫
             pygame.display.flip()
             
             # 更新Tkinter視窗
