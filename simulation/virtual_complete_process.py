@@ -162,7 +162,7 @@ def wholestep5_draw_light_image(arrayimage, target_numbers,size):
     return target_coordinate, obstacle_coordinate, circle_in_array_not_traget, light_image ,upadate_all_coordinate, all_coordinate
 
 
-##step 6 (結構樣要重寫)
+##step 6 
 def structure_and_center_of_array (target_numbers, size):
     num_layers = int(math.sqrt(target_numbers))
     array_layers = [[] for _ in range(num_layers)]
