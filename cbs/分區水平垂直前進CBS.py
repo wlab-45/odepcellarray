@@ -23,47 +23,49 @@ from functools import partial
 from ORCA_RVO2 import orca_planning
 
 
-def create_canvas_and_draw_circles(output_folder, radius, file_i, size=150):
-    # 創建一個黑色畫布
-    canvas_width = 1814
-    canvas_height = 1220
-    canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
-    # 設定輸出文本檔案的資料夾路徑
-    output_txt_folder = 'C:/Users/Vivo/CGU/odep_cellarray/Cell_Manipulation_Simulation/virtual_particle_points_txt'
-    
-    # 隨機生成 20 個點座標
-    points = []
-    while len(points) < 65:
-        x = random.randint(0, canvas_width - 5)
-        y = random.randint(0, canvas_height - 5)
-        if all(np.sqrt((x - px)**2 + (y - py)**2) >= 30 for px, py in points):
-            points.append((x, y))
+def create_canvas_and_draw_circles(output_folder, radius, length, width, size, file_i = 30):
+    for i in range(file_i):
+        # 創建一個黑色畫布
+        canvas_width = 1814
+        canvas_height = 1220
+        canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
+        # 設定輸出文本檔案的資料夾路徑
+        output_txt_folder = 'C:/Users/Vivo/CGU/odep_cellarray/Cell_Manipulation_Simulation/virtual_particle_points_txt'
+        
+        # 隨機生成 20 個點座標
+        points = []
+        while len(points) < 65:
+            x = random.randint(0, canvas_width - 25)
+            y = random.randint(0, canvas_height - 25)
+            if not (x < length * size and y < width * size):
+                if all(np.sqrt((x - px)**2 + (y - py)**2) >= 50 for px, py in points):
+                    points.append((x, y))
 
-    # 在畫布上畫紅色圓形
-    for point in points:
-        cv2.circle(canvas, point, radius, (0, 0, 255), -1)  # 使用紅色 (BGR)
+        # 在畫布上畫紅色圓形
+        for point in points:
+            cv2.circle(canvas, point, radius, (0, 0, 255), -1)  # 使用紅色 (BGR)
 
-    # 確保輸出資料夾存在
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+        # 確保輸出資料夾存在
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
 
-    # 輸出結果至指定資料夾
-    output_path = os.path.join(output_folder, f'{file_i}.png')
-    cv2.imwrite(output_path, canvas)
-    #print(f"結果已輸出至: {output_path}")
+        # 輸出結果至指定資料夾
+        output_path = os.path.join(output_folder, f'{i}.png')
+        cv2.imwrite(output_path, canvas)
+        #print(f"結果已輸出至: {output_path}")
 
 
-    
-    # 將座標寫入文本檔案
-    output_txt_path = os.path.join(output_txt_folder, f'{file_i}.txt')
-    
-    try:
-        with open(output_txt_path, 'w') as f:
-            for point in points:
-                f.write(f"{point}\n")
-        #print(f"座標已輸出至: {output_txt_path}")
-    except Exception as e:
-        print(f"寫入文件時發生錯誤: {e}")
+        
+        # 將座標寫入文本檔案
+        output_txt_path = os.path.join(output_txt_folder, f'{i}.txt')
+        
+        try:
+            with open(output_txt_path, 'w') as f:
+                for point in points:
+                    f.write(f"{point}\n")
+            #print(f"座標已輸出至: {output_txt_path}")
+        except Exception as e:
+            print(f"寫入文件時發生錯誤: {e}")
 
 #step 3
 def select_png_file():
@@ -96,10 +98,7 @@ def generate_array(image, size, length, width):
             cv2.rectangle(image, top_left, bottom_right, (255, 191, 0), 2)
     return image 
 
-def wholestep3_draw_array_picture():
-    file_path=select_png_file()
-    image=cv2.imread(file_path)
-    file_name = os.path.basename(file_path)
+def wholestep3_draw_array_picture(output_folder, Rp):
     #set size of each square arraysize
     root = tk.Tk()
     root.withdraw()
@@ -109,6 +108,11 @@ def wholestep3_draw_array_picture():
     width = 5 #simpledialog.askinteger("Input", "Enter the number of rows in the array:")
     length = int(length)
     width = int(width)
+    
+    create_canvas_and_draw_circles(output_folder, Rp, length, width, size, file_i = 30)
+    file_path=select_png_file()
+    image=cv2.imread(file_path)
+    file_name = os.path.basename(file_path)
     target_numbers = length * width
     arrayimage =generate_array(image , size, length, width)
 
@@ -250,41 +254,22 @@ def assignment(target_coordinate, size, columns, rows):
     print(f'length of matched_target_and_array list={len(matched_target_and_array)}')
     return matched_target_and_array
 
- 
-
-def straight_path(start_point, target_center, step_size):
-    path = []
-    dx = target_center[0] - start_point[0]
-    dy = target_center[1] - start_point[1]
-    all_length = math.sqrt(dx**2 + dy**2)
-    step_count = int(all_length / step_size)
-    
-    if all_length == 0:  # 如果起點終點一樣，直接連到終點
-        path.append(start_point)  
-    elif step_count == 0:  # 如果距離太短，直接連到終點
-        path.extend([start_point, target_center])
-    else:
-        step_x = dx / step_count 
-        step_y = dy / step_count  
-        path.append(start_point)
-        
-        for step_idx in range(1, step_count + 1): 
-            next_point = (
-                round(start_point[0] + step_x * step_idx),
-                round(start_point[1] + step_y * step_idx)
-            )
-            path.append(next_point)
-        
-        if path[-1] != target_center:
-            path.append(target_center)
-    
-    return path
-
-
 def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, obstacle_radius=15):
     start_time = time.time()
     grid_size = size
-    final_paths = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
+    # ORCA規劃優先
+    final_paths, ORCA_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
+    
+    # if ORCA_SUCCESS == False:
+    #     print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
+    #     # A*規劃
+    #     final_paths, Astar_SUCCESS = (matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
+        
+    #     if Astar_SUCCESS == False:
+    #         print("A*規劃失敗，無法找到路徑")
+    #         return None
+    
+    
     if final_paths is None:
         print("無法找到路徑，請檢查參數或障礙物配置。")
         raise ValueError("無法找到路徑")  
@@ -293,7 +278,7 @@ def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_b
     return final_paths
 
 # for a*
-def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates, grid_size, obstacle_radius=15):
+'''def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates, grid_size, obstacle_radius=15):
     # 計算網格的行數和列數
     num_rows = (image_height + grid_size - 1) // grid_size
     num_cols = (image_width + grid_size - 1) // grid_size
@@ -325,7 +310,6 @@ def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates,
                 if dx <= grid_size // 2 + obstacle_radius or dy <= grid_size // 2 + obstacle_radius:
                     walkable_grid[grid_y][grid_x] = False
     return walkable_grid
-
 
 # 網格轉step_size
 def interpolate_path(start, end, step_size):
@@ -414,7 +398,7 @@ def get_particle_occupied_grids(image_width, image_height,center_pos, grid_size,
             if dx <= grid_size // 2 + save_radius or dy <= grid_size // 2 + save_radius:
                 occupied.append((grid_x, grid_y))
     return set(occupied) #返回該粒子所佔的網格 (數)
-
+'''
 # 路徑尋找
 def draw_and_get_paths(image, whole_path_batch_astar, obstacle_coordinate_changed_bybatch, batch_size, size):
     whole_paths_batch = [[] for _ in range(batch_size)]
@@ -474,14 +458,9 @@ def whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_chan
     path_save_directory="C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\path_image"
     path_image_path = os.path.join(path_save_directory, f'path_{file_name}')
     cv2.imwrite(path_image_path, image_with_paths)   
-
-
-
-#避免碰撞發生
-#檢查現有路徑是否會有碰撞發生
+    
 ## step 7s
-# 找到光圈圓心到圓點的單位向量
-# 這個函數可以保留，用於計算拉動方向
+
 def find_unit_vector(light_coor, particle_coor):
     # 計算分量差值
     dx = light_coor[0] - particle_coor[0]
@@ -648,7 +627,7 @@ if __name__ == '__main__':
     image_height = 1220
     step_size = 3
     
-    size, target_numbers, arrayimage, file_name, columns, rows = wholestep3_draw_array_picture()
+    size, target_numbers, arrayimage, file_name, columns, rows = wholestep3_draw_array_picture(output_folder, Rp)
     target_coordinate, obstacle_coordinate, light_image, all_sorted_coordinate = wholestep5_draw_light_image(arrayimage, target_numbers, size, file_name, columns, rows)
 
     # 分區(L型)分配座標
