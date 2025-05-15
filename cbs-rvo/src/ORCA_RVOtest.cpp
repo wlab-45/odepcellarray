@@ -1,9 +1,16 @@
-#include <vector> 
-#include <cmath> 
-#include <iostream> 
-#include <stdio.h>
+#include <vector> // 引入 C++ 的動態陣列容器
+#include <cmath>  // 引入數學函式庫 (如 sqrt, cos, sin, abs, round)
+#ifndef M_PI
+#define M_PI 3.14159265358979323846 // 定義圓周率常數
+#endif
+#include <chrono> // 引入時間函式庫，用於測量執行時間
+#include <iostream> // 引入輸入輸出串流函式庫 (如 cout)
 #include <cassert> // 引入斷言函式庫，用於在程式碼中進行條件檢查
-//#include <limits> // 引入用於數值極限的函式庫 (如 numeric_limits)
+#include <limits> // 引入用於數值極限的函式庫 (如 numeric_limits)
+#include <utility> // 引入 std::pair
+
+// 引入 RVO2 C++ 函式庫的頭文件
+// 確保這個路徑在您的編譯環境中是正確的
 #include <RVO.h>
 
 // 定義一個簡單的 Point 結構來表示二維座標
@@ -35,22 +42,25 @@ std::ostream& operator<<(std::ostream& os, const Point& p) {
     return os;
 }
 
-
-
-Point* check_midpoint_and_obstacle(const Point& mid_point, const std::vector<Point>& OBSTACLE_CENTERS, int grid_size) {
+// 函式：檢查中間點是否與障礙物重疊
+// mid_point: 要檢查的中間點
+// OBSTACLE_CENTERS: 障礙物中心點列表
+// grid_size: 網格大小，用於判斷重疊的容忍距離
+// 回傳: 如果重疊，回傳重疊的障礙物中心點指標；否則回傳 nullptr
+Point* check_midpoint_and_obstacle(const Point& mid_point, const std::vector<Point>& OBSTACLE_CENTERS, double grid_size) {
     double new_x = mid_point.x;
     double mid_points_y = mid_point.y;
 
-    for (int j = 0; j < OBSTACLE_CENTERS.size(); ++j) {
+    for (size_t j = 0; j < OBSTACLE_CENTERS.size(); ++j) {
         const Point& obs = OBSTACLE_CENTERS[j];
         double obs_x = obs.x;
         double obs_y = obs.y;
 
         // 檢查中間點與障礙物中心在 X 和 Y 方向的距離是否都小於 grid_size (簡單的軸對齊邊界框檢查)
         if (std::abs(obs_x - new_x) < grid_size && std::abs(obs_y - mid_points_y) < grid_size) {
-            printf("Obstacle %s overlaps with mid-point %s. \n", mid_point.toRVOVector2().toString().c_str(), obs.toRVOVector2().toString().c_str());
+            std::cout << "Obstacle " << j << " overlaps with mid-point " << mid_point << "." << std::endl;
             // 回傳重疊的障礙物中心點的指標
-            return const_cast<Point*>(&obs);
+            return const_cast<Point*>(&OBSTACLE_CENTERS[j]);
         }
     }
     return nullptr; // 沒有重疊，回傳空指標
@@ -136,7 +146,7 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
     // 參數: timeStep, neighborDist, maxNeighbors, timeHorizon, timeHorizonObst, radius, maxSpeed
     RVO::RVOSimulator simulator;
     simulator.setTimeStep(TIME_STEP); // 設定時間步長
-    // 設定代理的預設參數。timeHorizonObst 使用了 Python 腳本中註解掉的 3.0
+    // 設定代理的預設參數。timeHorizonObst 使用了 Python 腳本中註解掉的 3.0 (原始腳本中實際 main 裡寫的是 3)
     simulator.setAgentDefaults(NEIGHBOR_DIST, 5, TIME_HORIZON, 3.0, CIRCLE_RADIUS, MAX_SPEED);
 
     // 添加代理
@@ -187,7 +197,22 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
     std::vector<std::vector<Point>> whole_paths(NUM_CIRCLES);
     for (int i = 0; i < NUM_CIRCLES; ++i) {
         whole_paths[i] = straight_path(START_POSITIONS[i], GOAL_POSITIONS_MID[i], 3.0); // 使用 step_size=3
+        // 如果直線路徑只包含起點，表示起點和目標點重合，這可能導致後續計算問題
+        if (whole_paths[i].size() <= 1) {
+             // 可以選擇處理這個情況，例如添加一個小的偏移目標，或者直接將目標點作為唯一點
+             // 這裡簡單確保至少有起點和中間目標點
+             if (whole_paths[i].empty() || (whole_paths[i].back().x != GOAL_POSITIONS_MID[i].x || whole_paths[i].back().y != GOAL_POSITIONS_MID[i].y)) {
+                whole_paths[i].push_back(GOAL_POSITIONS_MID[i]);
+             }
+             if (whole_paths[i].empty()) { // 如果仍然是空的，加入起點
+                 whole_paths[i].push_back(START_POSITIONS[i]);
+                  if (whole_paths[i].back().x != GOAL_POSITIONS_MID[i].x || whole_paths[i].back().y != GOAL_POSITIONS_MID[i].y) {
+                     whole_paths[i].push_back(GOAL_POSITIONS_MID[i]);
+                  }
+             }
+        }
     }
+
 
     std::vector<bool> agents_reached_mid_goal(NUM_CIRCLES, false); // 追蹤代理是否到達中間目標點
     int step = 0; // 模擬步數計數
@@ -215,19 +240,19 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
             } else {
                  all_reached_midpoint_goal = false; // 至少還有一個代理未到達中間目標
                 std::vector<Point>& path = whole_paths[i]; // 當前代理的參考路徑
-                if (path.empty()) {
-                     simulator.setAgentPrefVelocity(agents[i], RVO::Vector2(0, 0)); // 如果參考路徑為空，則停止
+                if (path.empty() || path.size() < 2) { // 如果參考路徑無效 (空或只有一個點)
+                     simulator.setAgentPrefVelocity(agents[i], RVO::Vector2(0, 0)); // 則停止該代理
                      continue; // 跳過當前代理後續的邏輯
                 }
 
                 // 計算代理在參考路徑上的"進度"
                 // 這部分邏輯複製自 Python 腳本，基於時間步長和最大速度估計行駛距離
                  double progress_distance = step * TIME_STEP * MAX_SPEED * 1.5; // 估計已行駛距離
-                 double path_length = (path.back() - path.front()).norm(); // 計算參考路徑總長度
+                 double path_length_estimate = (path.back() - path.front()).norm(); // 估計參考路徑總長度 (直線距離)
 
                  // 計算進度比例 (0.0 到 1.0 或可能超過 1.0)
-                 // 避免除以零
-                 double progress = (path_length > 0) ? progress_distance / path_length : 1.0;
+                 // 避免除以零或非常小的數
+                 double progress = (path_length_estimate > 1e-6) ? progress_distance / path_length_estimate : 1.0;
 
                  // 根據進度計算在參考路徑上應當追蹤的目標點索引
                  int idx = std::min(static_cast<int>(progress * path.size()), static_cast<int>(path.size()) - 1);
@@ -236,24 +261,25 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
                  Point direction = target - current_pos; // 計算從當前位置到參考目標點的方向向量
                  double dist = direction.norm(); // 計算距離參考目標點的距離
 
-                 double arrival_threshold = 100.0; // 用於判斷是否進入減速區域的外層閾值 (Python 代碼中未明確使用這個值來判斷是否停止，而是用 dist_to_mid_goal)
-                 double arrival_threshold_slowdown = 20.0; // 用於判斷是否進入減速區域的內層閾值
+                 // RVO::Vector2 preferred_velocity; // 首選速度 (RVO::Vector2 類型) // 已在前面聲明
 
+                 double arrival_threshold_slowdown = 20.0; // 用於判斷是否進入減速區域的內層閾值 (Python 中是 20)
                  RVO::Vector2 preferred_velocity; // 首選速度 (RVO::Vector2 類型)
 
                  // 根據距離中間目標點來設定首選速度
-                 if (dist_to_mid_goal < arrival_threshold) {
-                     // 靠近最終中間目標點，設定速度為零 (Python 代碼中是 <= 100，但在外層判斷是 <= 3)
-                     // 這裡以靠近中間目標點的距離 dist_to_mid_goal 為主進行判斷
-                      simulator.setAgentPrefVelocity(agents[i], RVO::Vector2(0, 0));
-                 } else if (dist_to_mid_goal < arrival_threshold_slowdown) {
-                     // 在減速區域內 (距離中間目標點 < 20)，根據距離調整速度
+                 // Python 原始碼是 if dist_to_goal < 100 停止，elif dist_to_goal < 20 減速
+                 // 我之前的 C++ 版本使用了 dist_to_mid_goal < precise_arrival_threshold (3.0) 作為主要停止條件
+                 // 這裡修正為更貼近 Python 原始碼的邏輯判斷（使用 100 和 20 作為閾值）
+                 if (dist_to_mid_goal < 100.0) { // Python 中是 <= 100
+                      simulator.setAgentPrefVelocity(agents[i], RVO::Vector2(0, 0)); // 設定首選速度為零 (停止)
+                 } else if (dist_to_mid_goal < arrival_threshold_slowdown) { // Python 中是 < 20
+                     // 在減速區域內，根據距離調整速度
                      double slowdown_factor = std::max(0.1, dist_to_mid_goal / arrival_threshold_slowdown); // 減速因子，至少為 0.1
                      double desired_speed = std::min(MAX_SPEED, dist / TIME_STEP) * slowdown_factor; // 計算期望的速度大小
                      if (dist > 1e-6) { // 避免方向向量為零時除法
-                          preferred_velocity = direction.toRVOVector2() / dist * desired_speed; // 計算首選速度向量
+                        preferred_velocity = direction.toRVOVector2() / dist * desired_speed; // 計算首選速度向量
                      } else {
-                         preferred_velocity = RVO::Vector2(0,0); // 已經非常接近參考目標點，停止
+                        preferred_velocity = RVO::Vector2(0,0); // 已經非常接近參考目標點，停止
                      }
                      simulator.setAgentPrefVelocity(agents[i], preferred_velocity); // 設定代理的首選速度
                  } else {
@@ -262,7 +288,7 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
                      if (dist > 1e-6) { // 避免方向向量為零時除法
                         preferred_velocity = direction.toRVOVector2() / dist * desired_speed; // 計算首選速度向量
                      } else {
-                         preferred_velocity = RVO::Vector2(0,0); // 已經非常接近參考目標點，停止
+                        preferred_velocity = RVO::Vector2(0,0); // 已經非常接近參考目標點，停止
                      }
                     simulator.setAgentPrefVelocity(agents[i], preferred_velocity); // 設定代理的首選速度
                  }
@@ -281,18 +307,25 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
                  Point current_pos(current_pos_rvo.x(), current_pos_rvo.y()); // 轉換為 Point
                  Point mid_goal = GOAL_POSITIONS_MID[i]; // 代理的中間目標點
 
-                 // 再次計算從當前 RVO 位置到中間目標點的直線路徑 (步長為 2.0)
+                 // 計算從當前 RVO 位置到中間目標點的直線路徑 (步長為 2.0)
                  std::vector<Point> late_path = straight_path(current_pos, mid_goal, 2.0);
 
                  // 如果這條"後期路徑"點數大於 1，則將代理位置強制設定為這條路徑的**第二個點**
                  if (late_path.size() > 1) {
                      simulator.setAgentPosition(agents[i], late_path[1].toRVOVector2());
-                 } else if (late_path.size() == 1) {
+                 } else {
                     // 如果只有一個點，表示已經非常接近或就在中間目標點，則強制設定為中間目標點
+                    // Python 中是 else: sim.setAgentPosition(agent_id, tuple(GOAL_POSITIONS[i]))
+                    // 這似乎表明如果 late_path <= 1，就直接跳到中間目標點
                      simulator.setAgentPosition(agents[i], mid_goal.toRVOVector2());
                  }
+
+                // Python 原始碼這裡有一個 assert 檢查，我們也加上
+                // assert np.linalg.norm(...) <= 100
+                assert(((Point(simulator.getAgentPosition(agents[i]).x(), simulator.getAgentPosition(agents[i]).y()) - mid_goal).norm() <= 100.0) == true); // 斷言調整後位置與中間目標點的距離 <= 100
              }
         }
+
 
         // 在每次 sim.doStep() (及可能的強制位置調整) 後，記錄每個代理的當前位置
         for (int i = 0; i < NUM_CIRCLES; ++i) {
@@ -309,7 +342,7 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
              Point final_mid_goal = GOAL_POSITIONS_MID[i];
              double dist_to_mid_goal = (final_mid_goal - current_pos).norm();
 
-             if (dist_to_mid_goal >= precise_arrival_threshold) {
+             if (dist_to_mid_goal >= precise_arrival_threshold) { // 使用 precise_arrival_threshold (3.0) 作為最終停止判斷閾值
                  all_reached_midpoint_goal = false; // 找到未到達的，設定為 false
                  break; // 跳出檢查迴圈
              }
@@ -349,7 +382,7 @@ std::pair<std::vector<std::vector<Point>>, bool> run_simulation(
 // obstacle_radius: 障礙物半徑，用於後面的特定檢查
 // 回傳: 完成後的最終路徑列表
 std::vector<std::vector<Point>> complete_path(
-    std::vector<std::vector<Point>>& all_agent_paths, // RVO階段生成並到達中間目標的路徑
+    std::vector<std::vector<Point>>& all_agent_paths, // RVO階段生成並到達中間目標的路徑 (注意這裡是非const引用，因為會修改)
     const std::vector<Point>& REAL_GOAL_POSITIONS, // 最終的真實目標
     const std::vector<Point>& OBSTACLE_CENTERS, double obstacle_radius) { // 障礙物資訊
 
@@ -395,22 +428,29 @@ std::vector<std::vector<Point>> complete_path(
                 Point real_goal = REAL_GOAL_POSITIONS[i]; // 該代理的真實最終目標點
 
                 // 生成從中間目標點到真實目標點的直線路徑段
-                std::vector<Point> path_segment = straight_path(last_point, real_goal, 3.0); // 使用 step_size=3
+                // Python 原始碼是 straight_path(last_point, real_goal, step_size=3)
+                std::vector<Point> path_segment = straight_path(last_point, real_goal, 3.0);
 
                 // 將新生成的路徑段添加到原有路徑的末尾
                 if (!path_segment.empty()) {
                     // 檢查路徑段的第一個點是否與原有路徑的最後一個點重複，避免添加重複點
                      if (!all_agent_paths[i].empty() && (path_segment[0].x == all_agent_paths[i].back().x && path_segment[0].y == all_agent_paths[i].back().y)) {
-                         all_agent_paths[i].insert(all_agent_paths[i].end(), path_segment.begin() + 1, path_segment.end()); // 從路徑段的第二個點開始添加
+                         // 如果重複，從 path_segment 的第二個點開始添加
+                         all_agent_paths[i].insert(all_agent_paths[i].end(), path_segment.begin() + 1, path_segment.end());
                      } else {
-                         all_agent_paths[i].insert(all_agent_paths[i].end(), path_segment.begin(), path_segment.end()); // 添加整個路徑段
+                         // 如果不重複，添加整個 path_segment
+                         all_agent_paths[i].insert(all_agent_paths[i].end(), path_segment.begin(), path_segment.end());
                      }
                  }
             } else {
+                // 這個分支處理 RVO 階段路徑為空的情況
                 std::cerr << "Agent " << i << " has no initial path from RVO simulation." << std::endl;
-                // 如果代理在 RVO 模擬後沒有生成路徑 (例如，一開始就失敗了)
-                // 這裡簡單地將真實目標點添加到路徑中 (這可能不是期望的行為，需要根據需求調整)
+                // Python 原始碼在這種情況下，會直接觸發 ValueError
+                // 在 C++ 中我們可以選擇拋出異常，或者像這裡一樣，至少將真實目標點加入路徑
+                // 這裡為了不中斷程式，簡單地將真實目標點加入
                  all_agent_paths[i].push_back(REAL_GOAL_POSITIONS[i]);
+                 // 如果要完全模仿 Python 的 ValueError:
+                 // throw std::runtime_error("Agent's path is empty.");
             }
         }
     }
@@ -419,10 +459,11 @@ std::vector<std::vector<Point>> complete_path(
 
 
 // 函式：設置參數並呼叫 ORCA 規劃流程的頂層函式
+// 這個函式就是設計來接收外部（包括 Python）傳入的資料並執行規劃的
 // matched_target_and_array_batch: 包含起始點和真實目標點對的列表 (pair of (start, goal))
 // obstacle_coordinate_changed_btbatch: 障礙物中心點列表
 // grid_size, image_width, image_height, step_size, Rl, obstacle_radius: 規劃所需的各類參數
-// 回傳: 一個 pair，包含所有代理的最終路徑列表，以及一個表示規劃是否成功的布林值
+// 回傳: 一個 pair，包含所有代理的最終路徑列表，以及一個表示模擬是否成功到達中間目標的布林值
 std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
     const std::vector<std::pair<Point, Point>>& matched_target_and_array_batch, // (起始點, 真實目標點) 對的列表
     const std::vector<Point>& obstacle_coordinate_changed_btbatch, // 障礙物中心點列表
@@ -435,13 +476,13 @@ std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
     int NUM_CIRCLES = matched_target_and_array_batch.size(); // 代理數量
 
     // RVO2 參數 (這些參數影響避碰行為)
-    double CIRCLE_RADIUS = Rl + 10; // 代理的半徑 (RVO2 使用)
-    double OBSTACLE_RADIUS_RVO = 25; // RVO2 內部使用的障礙物半徑 (Python 代碼中設定為 25)
-    double NEIGHBOR_DIST = 80.0; // 代理尋找附近其他代理的最大距離
-    double TIME_HORIZON = 1.5; // 代理預測其他代理未來位置的時間視界
-    double TIME_STEP = 1.0 / 30.0; // 每個模擬步的時間長度 (例如 30fps)
+    double CIRCLE_RADIUS = Rl + 10; // 代理的半徑 (RVO2 使用)。Python 中是 Rl+10
+    double OBSTACLE_RADIUS_RVO = 25; // RVO2 內部用於圓形障礙物的半徑。Python 中設定為 25
+    double NEIGHBOR_DIST = 80.0; // 代理尋找附近其他代理的最大距離。Python 中是 80
+    double TIME_HORIZON = 1.5; // 代理預測其他代理未來位置的時間視界。Python 中是 1.5
+    double TIME_STEP = 1.0 / 30.0; // 每個模擬步的時間長度 (例如 30fps)。Python 中是 1/30
     // 代理的最大移動速度 (像素/秒)。這裡根據 step_size 和 TIME_STEP 計算，模仿 Python 邏輯
-    double MAX_SPEED = (1.0 / TIME_STEP) * step_size;
+    double MAX_SPEED = (1.0 / TIME_STEP) * step_size; // Python 中是 1/(TIME_STEP) * step_size
 
     // 靜態障礙物中心點列表
     std::vector<Point> OBSTACLE_CENTERS = obstacle_coordinate_changed_btbatch;
@@ -457,7 +498,7 @@ std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
     // 生成用於 RVO2 模擬階段的中間目標點
     std::vector<Point> GOAL_POSITIONS_MID = generate_mid_points_to_goal(OBSTACLE_CENTERS, REAL_GOAL_POSITIONS, grid_size);
 
-    // 開始執行 RVO 規劃的主體模擬
+    // 開始執行 RVO 規劃的主體模擬 (到中間目標點)
     auto start_time = std::chrono::high_resolution_clock::now(); // 記錄開始時間
     auto result = run_simulation(
         NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS,
@@ -467,6 +508,7 @@ std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
     bool SUCCESS = result.second; // RVO 模擬是否成功到達中間目標
 
     // 完成最終路徑，從中間目標延伸到真實目標
+    // 這裡需要傳入 obstacle_radius，因為 complete_path 中的特定檢查使用了它
     std::vector<std::vector<Point>> final_paths = complete_path(
         all_agent_paths_to_mid_goals, REAL_GOAL_POSITIONS, OBSTACLE_CENTERS, obstacle_radius); // 注意這裡傳入的是 REAL_GOAL_POSITIONS 和原始 obstacle_radius
 
@@ -474,7 +516,7 @@ std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
     std::chrono::duration<double> elapsed_time = end_time - start_time; // 計算總耗時
     std::cout << "Total planning time = " << elapsed_time.count() << " seconds" << std::endl;
 
-    // 對最終路徑的所有點座標進行四捨五入取整
+    // 對最終路徑的所有點座標進行四捨五入取整 (Python 腳本最後的步驟)
     std::vector<std::vector<Point>> rounded_final_paths;
     for (const auto& path : final_paths) {
         std::vector<Point> rounded_path;
@@ -484,22 +526,31 @@ std::pair<std::vector<std::vector<Point>>, bool> orca_planning_cpp(
         rounded_final_paths.push_back(rounded_path);
     }
 
-    return {rounded_final_paths, SUCCESS}; // 回傳四捨五入後的最終路徑和成功狀態
+    return {rounded_final_paths, SUCCESS}; // 回傳四捨五入後的最終路徑和成功狀態 (成功表示到達了中間目標)
 }
 
-// C++ 程式的入口函式
+
+
+
+
+
+
+// --- C++ 程式的入口函式 (僅用於獨立測試) ---
+// 當您從 Python 呼叫時，**不會**執行這個 main 函式。
+// 這個 main 函式只是為了讓這個 C++ 檔案可以獨立編譯和運行，方便測試。
 int main() {
-    // --- 定義範例參數和輸入數據 ---
-    // 您需要將這些替換為您的實際數據
+    std::cout << "--- Running C++ ORCA Simulation Test ---" << std::endl;
+
+    // --- 定義範例參數和輸入數據 (僅供獨立測試使用) ---
+    // 當從 Python 呼叫時，這些數據將由 Python 主程式提供
     double grid_size = 20.0;
     double image_width = 640.0;
     double image_height = 480.0;
-    double step_size = 5.0; // 例如，代理每一步嘗試移動的像素距離，影響 MAX_SPEED
-    double Rl = 15.0; // 例如，代理的邏輯半徑，用於計算 RVO 的 CIRCLE_RADIUS (Rl + 10)
-    double obstacle_radius = 25.0; // 例如，障礙物的實際半徑，用於 complete_path 中的檢查
+    double step_size = 5.0; // Example step size
+    double Rl = 15.0; // Example agent radius parameter Rl
+    double obstacle_radius = 25.0; // Example obstacle radius parameter (用於 complete_path 檢查)
 
     // 範例的起始點和真實最終目標點列表 ( pair<起始點, 真實目標點> )
-    // 例如：代理 0 從 (50, 400) 移動到 (50, 50)
     std::vector<std::pair<Point, Point>> matched_target_and_array_batch = {
         {Point(50, 400), Point(50, 50)},
         {Point(150, 400), Point(150, 50)},
@@ -514,7 +565,7 @@ int main() {
         // 添加更多障礙物中心點...
     };
 
-    // 呼叫 ORCA 規劃函式執行規劃
+    // 呼叫實際執行規劃的函式 (orca_planning_cpp)
     auto result = orca_planning_cpp(
         matched_target_and_array_batch,
         obstacle_coordinate_changed_btbatch,
@@ -528,54 +579,36 @@ int main() {
     // 列印規劃結果 (最終路徑)
     if (success) {
         std::cout << "\nORCA Planning Successful! (Reached intermediate goals)" << std::endl;
-        for (size_t i = 0; i < final_paths.size(); ++i) {
-            std::cout << "Agent " << i << " Final Path:" << std::endl;
-            for (const auto& p : final_paths[i]) {
-                std::cout << p << " -> ";
-            }
-            std::cout << "END" << std::endl;
-        }
     } else {
         std::cout << "\nORCA Planning Failed or did not reach all intermediate goals within max steps." << std::endl;
-         // 即使未完全成功，也可能生成了部分路徑，可以選擇列印出來
-         std::cout << "Partial paths generated:" << std::endl;
-         for (size_t i = 0; i < final_paths.size(); ++i) {
-            std::cout << "Agent " << i << " Partial Path:" << std::endl;
-            for (const auto& p : final_paths[i]) {
-                std::cout << p << " -> ";
-            }
-            std::cout << "END" << std::endl;
-        }
     }
+
+    // 總是列印最終的路徑點
+    for (size_t i = 0; i < final_paths.size(); ++i) {
+        std::cout << "Agent " << i << " Final Path Points (" << final_paths[i].size() << " points):" << std::endl;
+        for (const auto& p : final_paths[i]) {
+            std::cout << p << " ";
+        }
+        std::cout << "\n"; // 每條路徑結束後換行
+    }
+     std::cout << "--- Test Ends ---" << std::endl;
+
 
     return 0; // 程式成功結束
 }
 
 /*
-如何編譯和執行：
+如何將此 C++ 程式碼用於 Python (使用 pybind11)：
 
-1.  **安裝 RVO2 C++ 函式庫：** 您需要先下載 RVO2 的 C++ 版本的原始碼，並根據其提供的說明進行編譯和安裝。通常使用 CMake 進行編譯。
+1.  將上面的 C++ 程式碼保存到一個或多個 .cpp/.h 檔案中。例如，您可以將 Point 定義和函式聲明放在一個 .h 檔案，函式實現放在 .cpp 檔案。或者如果您只想快速測試，也可以暫時放在一個 .cpp 檔案。
 
-2.  **保存程式碼：** 將上述 C++ 程式碼保存為一個 `.cpp` 檔案，例如 `orca_simulation.cpp`。
+2.  編寫一個單獨的 .cpp 檔案用於 pybind11 繫結 (例如 bind.cpp)，告訴 pybind11 如何將 orca_planning_cpp 函式和 Point 結構暴露給 Python。
 
-3.  **編譯：** 使用 C++ 編譯器 (如 g++) 進行編譯。您需要提供 RVO2 函式庫頭文件的路徑 (`-I`) 和函式庫檔案的路徑 (`-L`)，並連結 RVO 函式庫 (`-lRVO`)。
-    請替換 `/您的/RVO2/函式庫/include路徑` 和 `/您的/RVO2/函式庫/lib路徑` 為您實際安裝 RVO2 函式庫的位置。
+3.  使用一個建構系統 (如 setuptools 的 setup.py 或 CMake) 來編譯您的 C++ 程式碼、pybind11 繫結程式碼，並確保正確連結到 RVO2 函式庫。
 
-    ```bash
-    g++ orca_simulation.cpp -o orca_simulation -I/您的/RVO2/函式庫/include路徑 -L/您的/RVO2/函式庫/lib路徑 -lRVO -std=c++11 -Wall -Wextra
-    ```
-    * `-o orca_simulation`: 指定輸出執行檔的名稱。
-    * `-I...`: 指定頭文件搜索路徑。
-    * `-L...`: 指定函式庫搜索路徑。
-    * `-lRVO`: 連結 RVO 函式庫。
-    * `-std=c++11`: 使用 C++11 或更高版本標準。
-    * `-Wall -Wextra`: 啟用常用的編譯警告。
+4.  建構系統會生成一個 Python 擴展模組 (.so 或 .pyd 文件)，您可以將其安裝到您的 Python 環境中。
 
-4.  **執行：** 編譯成功後，在終端中執行生成的執行檔：
+5.  在您的 Python 主程式中，導入這個模組，然後呼叫暴露出來的 orca_planning 函式，並將您的實際數據作為參數傳入。
 
-    ```bash
-    ./orca_simulation
-    ```
-
-程式將會執行模擬並列印出每個代理計算出的路徑點列表。
+這個 C++ 檔案中的 `main` 函式僅是為了方便您在沒有 Python 環境的情況下測試 C++ 程式碼是否能獨立運行和產生結果。當您從 Python 呼叫時，它不會被執行。
 */

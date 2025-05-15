@@ -278,7 +278,7 @@ def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_b
     return final_paths
 
 # for a*
-'''def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates, grid_size, obstacle_radius=15):
+def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates, grid_size, obstacle_radius=15):
     # 計算網格的行數和列數
     num_rows = (image_height + grid_size - 1) // grid_size
     num_cols = (image_width + grid_size - 1) // grid_size
@@ -310,7 +310,7 @@ def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_b
                 if dx <= grid_size // 2 + obstacle_radius or dy <= grid_size // 2 + obstacle_radius:
                     walkable_grid[grid_y][grid_x] = False
     return walkable_grid
-
+'''
 # 網格轉step_size
 def interpolate_path(start, end, step_size):
     dx = end[0] - start[0]
@@ -486,7 +486,7 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
         print("[警告] whole_paths 為空，無法進行模擬")
         return # 如果沒有路徑，提前結束
 
-    # 這一部分邏輯保留，因為影片時長由最長路徑決定
+    # 因為影片時長由最長路徑決定
     for k in range(len(whole_paths)):
         while len(whole_paths[k]) < max_path_length:
             if whole_paths[k]:  # 確保原始路徑非空，可以複製最後一點
@@ -498,7 +498,7 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
     # 設置影片輸出區
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # 請確認或修改這裡的輸出路徑
-    outputpath = f"C:/Users/Vivo/odepcellarray_fromlab/cbs/movement_simulation_{file_name}_rvo版.mp4"
+    outputpath = f"C:/Users/Vivo/odepcellarray_fromlab/cbs-rvo/movement_simulation_{file_name}_rvo版.mp4"
     out = cv2.VideoWriter(outputpath, fourcc, 30.0, (canvas.shape[1], canvas.shape[0]))
 
     if not out.isOpened():
@@ -509,86 +509,93 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
     # all_particle_coor 包含了所有粒子的初始位置。
     # 移動粒子是前 target_numbers 個。
     # 複製這些位置，以便在模擬中更新。
-    moving_particles_current_pos = [list(particle) for batch in matched_target_and_array for (particle, array) in batch]
+    moving_particles_current_pos_np = np.array([list(particle) for batch in matched_target_and_array for (particle, array) in batch], dtype=np.float64)
 
 
     print(f"Starting simulation visualization for {len(whole_paths)} moving light circles over {max_path_length} frames.")
 
     # 模擬循環，遍歷每個影格
     for step in range(max_path_length):
-        display_img = canvas.copy() #空白畫布
+        display_img = canvas.copy()
 
-        # 繪製靜態障礙物 (保持不變)
+        # 繪製靜態元素 (可以保持原樣，或者如果數量巨大，考慮預先繪製)
         for obstacle in obstacle_coordinate:
-            cv2.circle(display_img, obstacle, 15, (255, 0, 0), -1) # 藍色障礙物
-
-        # 繪製靜止的粒子 (非目標粒子 保持不變)
+            cv2.circle(display_img, obstacle, 15, (255, 0, 0), -1)
         for circle in static_particles_coords:
-            cv2.circle(display_img, circle, radius=Rp, color=(0, 0, 250), thickness=-1) # 靜止粒子 (紅)
+            cv2.circle(display_img, circle, radius=Rp, color=(0, 0, 250), thickness=-1)
 
-        # 繪製移動的光圈和他們拉動的粒子
-        # 遍歷 whole_paths (每個 path 對應一個移動的光圈)
+        # whole_paths[i][step] 是第 i 個光圈在 step 的位置
+        light_targets = []
+        valid_indices = [] # 記錄哪些路徑是有效的 (非空且 step 在範圍內)
         for i, path in enumerate(whole_paths):
-            # 檢查路徑是否為空，以及當前時間步長是否在路徑範圍內
-            if not path or step >= len(path):
-                
-                if path: 
-                    light_coor = path[-1]
-                else:
-                    continue # 跳過這個粒子/光圈的繪製和更新
-                particle_coor = moving_particles_current_pos[i] # 取出粒子當前位置（應該是最後位置）
+            if path and step < len(path):
+                light_targets.append(path[step])
+                valid_indices.append(i)
+            elif path: # 如果路徑有效但 step 超出範圍，使用最後一個點
+                light_targets.append(path[-1])
+                valid_indices.append(i)
+            # 如果 path 為空，則不添加到 light_targets，也不在後續處理中包含
 
-            else: # 如果在路徑範圍內，光圈移動到路徑上的下一個點
-                light_coor = path[step] # 光圈的目標位置就是路徑上的當前點
-                particle_coor = moving_particles_current_pos[i] # 取出粒子當前位置
+        if not light_targets:
+            print(f"[警告] 在步驟 {step} 沒有有效的光圈目標位置。")
+            continue # 跳過移動物體相關的計算和繪製
 
-                # --- 粒子被光圈拉動的邏輯 ---
-                dx = light_coor[0] - particle_coor[0]
-                dy = light_coor[1] - particle_coor[1]
-                dist_to_light = math.sqrt(dx**2 + dy**2)
+        light_targets_np = np.array(light_targets, dtype=np.float64)
+        # 只處理有效路徑對應的粒子位置
+        moving_particles_subset_np = moving_particles_current_pos_np[valid_indices]
 
-                if dist_to_light > 0:
-                    # 計算單位向量 (拉動方向)
-                    unit_vector = (dx / dist_to_light, dy / dist_to_light)
+        # 計算從粒子到光圈的向量
+        vectors_to_light = light_targets_np - moving_particles_subset_np
+        distances_to_light = np.linalg.norm(vectors_to_light, axis=1) # 計算每個向量的長度
 
-                    # 計算這個影格粒子應該移動的距離
-                    # 粒子朝光圈移動，但最大移動距離限制在 step_size
-                    move_distance = min(dist_to_light, step_size) # 拉力強度/粒子最大速度限制
+        # 避免除以零，處理距離為零的情況
+        non_zero_dist_mask = distances_to_light > 1e-6
+        unit_vectors = np.zeros_like(vectors_to_light)
+        unit_vectors[non_zero_dist_mask] = vectors_to_light[non_zero_dist_mask] / distances_to_light[non_zero_dist_mask][:, np.newaxis] # 廣播除法
 
-                    # 更新粒子位置 (使用浮點數計算，最後繪圖時取整)
-                    particle_coor[0] += unit_vector[0] * move_distance
-                    particle_coor[1] += unit_vector[1] * move_distance
+        # 計算移動距離
+        # 粒子移動距離限制在 step_size 和到光圈的距離之間
+        move_distances = np.minimum(distances_to_light, step_size)
 
-                # --- 確保粒子在光圈影響範圍內 (Rl-Rp) ---
-                # 在粒子移動 *之後*，檢查它是否超出了光圈的有效拉動範圍
-                dx_after_move = particle_coor[0] - light_coor[0]
-                dy_after_move = particle_coor[1] - light_coor[1]
-                dist_after_move = math.sqrt(dx_after_move**2 + dy_after_move**2)
+        # 更新粒子位置 (使用浮點數)
+        moving_particles_subset_np += unit_vectors * move_distances[:, np.newaxis]
 
-                # Rl-Rp 是粒子中心到光圈中心的最大距離，再遠就拉不動了
-                max_pull_distance_from_light_center = Rl - Rp # 使用 Rl 和 Rp
+        # 確保粒子在光圈影響範圍內 (Rl-Rp)
+        max_pull_distance_from_light_center = Rl - Rp
 
-                if dist_after_move > max_pull_distance_from_light_center:
-                    # 如果粒子超出了有效範圍，將它拉回到邊界上
-                    if dist_after_move > 1e-6: # 避免除以零
-                         scale = max_pull_distance_from_light_center / dist_after_move
-                         # 將粒子位置拉回到以 light_coor 為中心，max_pull_distance_from_light_center 為半徑的圓周上
-                         particle_coor[0] = light_coor[0] + (particle_coor[0] - light_coor[0]) * scale
-                         particle_coor[1] = light_coor[1] + (particle_coor[1] - light_coor[1]) * scale
-                    # else: # 如果距離非常小但仍然 > 0 且 > max_pull_distance，也拉回
-                        # 這部分邏輯通常涵蓋在上面的 if dist_after_move > 1e-6 中
+        # 再次計算移動後粒子到光圈的距離
+        vectors_after_move = moving_particles_subset_np - light_targets_np
+        distances_after_move = np.linalg.norm(vectors_after_move, axis=1)
 
-                # 更新粒子在列表中的位置 (儲存浮點數位置)
-                moving_particles_current_pos[i] = particle_coor.copy() # 確保是複製，不是引用
+        # 找出超出範圍的粒子
+        out_of_range_mask = distances_after_move > max_pull_distance_from_light_center
 
-            # 繪製光圈 (在路徑點上)
-            cv2.circle(display_img, (int(round(light_coor[0])), int(round(light_coor[1]))), radius=Rl, color=(250, 250, 250), thickness=10) # 白色光圈
+        # 對超出範圍的粒子進行拉回
+        if np.any(out_of_range_mask):
+            out_of_range_indices = np.where(out_of_range_mask)[0]
+            # 避免除以零
+            valid_pull_back_mask = distances_after_move[out_of_range_indices] > 1e-6
+            valid_pull_back_indices = out_of_range_indices[valid_pull_back_mask]
 
-            # 繪製粒子 (在更新後的位置上)
-            cv2.circle(display_img, (int(round(particle_coor[0])), int(round(particle_coor[1]))), Rp, (0, 0, 250), -1) # 移動粒子 (紅色)
+            if valid_pull_back_indices.size > 0:
+                scale = max_pull_distance_from_light_center / distances_after_move[valid_pull_back_indices]
+                # 將粒子位置拉回到邊界上
+                moving_particles_subset_np[valid_pull_back_indices] = light_targets_np[valid_pull_back_indices] + vectors_after_move[valid_pull_back_indices] * scale[:, np.newaxis]
 
 
-        # 縮放並顯示影格 (保持不變)
+        # 更新主粒子位置陣列
+        moving_particles_current_pos_np[valid_indices] = moving_particles_subset_np
+
+        # 繪製移動的光圈和粒子
+        for i_subset, i_original in enumerate(valid_indices):
+            light_coor = light_targets_np[i_subset]
+            particle_coor = moving_particles_current_pos_np[i_original] # 使用原始索引獲取最新位置
+            # 繪製光圈
+            cv2.circle(display_img, (int(round(light_coor[0])), int(round(light_coor[1]))), radius=Rl, color=(250, 250, 250), thickness=10)
+            # 繪製粒子
+            cv2.circle(display_img, (int(round(particle_coor[0])), int(round(particle_coor[1]))), Rp, (0, 0, 250), -1)
+
+
         scale_percent = 50
         width = int(display_img.shape[1] * scale_percent / 100)
         height = int(display_img.shape[0] * scale_percent / 100)
@@ -596,9 +603,9 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
         resized_image = cv2.resize(display_img, dim, interpolation=cv2.INTER_AREA)
 
         cv2.imshow('Movement Simulation', resized_image)
-        out.write(display_img)
+        out.write(display_img) # 注意這裡仍然寫入全尺寸圖像
 
-        # 檢查用戶中斷 (保持不變)
+        # 檢查用戶中斷
         if cv2.waitKey(1) & 0xFF == ord('q'):
             print("Simulation interrupted by user.")
             break
@@ -615,6 +622,8 @@ def whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_co
     generate_array(canvas, size, columns, rows)
     simulate_movement(canvas, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
     return
+
+# def collision_or_not()
 
 # version2
 if __name__ == '__main__':
@@ -657,7 +666,7 @@ if __name__ == '__main__':
         for k in range(len(whole_path_batch_astar)):
             while len(whole_path_batch_astar[k]) < max_path_length:
                 whole_path_batch_astar[k].append(whole_path_batch_astar[k][-1])  # 最後一點填充(表一直在陣列終點)
-            for m in range( int(1 * sum_path_length)):   #可以設定每批開始移動的間隔時間
+            for m in range( int(1/3 * sum_path_length)):   #可以設定每批開始移動的間隔時間
                 whole_path_batch_astar[k].insert(0, whole_path_batch_astar[k][0])  # 填充第一個點來分批移動
             
         sum_path_length += int( max_path_length)
