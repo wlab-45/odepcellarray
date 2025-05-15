@@ -623,7 +623,7 @@ def whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_co
     simulate_movement(canvas, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
     return
 
-# def collision_or_not()
+#  def collision_or_not()
 
 # version2
 if __name__ == '__main__':
