@@ -7,8 +7,6 @@ import math, random
 import heapq
 import copy
 import time
-import seaborn as sns
-import pandas as pd
 import matplotlib.pyplot as plt
 import heapq
 import math
@@ -624,6 +622,31 @@ def whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_co
     return
 
 #  def collision_or_not()
+#避免碰撞發生
+#檢查現有路徑是否會有碰撞發生
+def collision_or_not(whole_path, Rl):
+    flat_paths = [path for batch in whole_path for path in batch]
+
+    max_path_length = max(len(path) for path in flat_paths) 
+    
+    for step in range(max_path_length): 
+        active_points = []  # 當前時間步所有粒子的位置
+        path_indices = []  # 記錄對應的 path 編號
+        
+        for idx, path in enumerate(flat_paths):
+            if step < len(path):  
+                active_points.append(path[step])
+                path_indices.append(idx)  # 記錄這個點對應的路徑編號
+        
+        # 檢查當前時間步的所有點，是否有兩點距離過近
+        for i in range(len(active_points)):
+            for j in range(i + 1, len(active_points)):  
+                dx = abs(active_points[i][0] - active_points[j][0])
+                dy = abs(active_points[i][1] - active_points[j][1])
+                
+                if dx**2 + dy**2 < (2*(Rl+10))**2:  # 10是來自於光圈thickness
+                    return True  # 發生碰撞
+    return False  # 沒有碰撞
 
 # version2
 if __name__ == '__main__':
@@ -666,21 +689,30 @@ if __name__ == '__main__':
         for k in range(len(whole_path_batch_astar)):
             while len(whole_path_batch_astar[k]) < max_path_length:
                 whole_path_batch_astar[k].append(whole_path_batch_astar[k][-1])  # 最後一點填充(表一直在陣列終點)
-            for m in range( int(1/3 * sum_path_length)):   #可以設定每批開始移動的間隔時間
-                whole_path_batch_astar[k].insert(0, whole_path_batch_astar[k][0])  # 填充第一個點來分批移動
+            delay_factor = 3 
+            collision = True
+            while collision:
+                for m in range( int(1/delay_factor * sum_path_length)):   #可以設定每批開始移動的間隔時間
+                    whole_path_batch_astar[k].insert(0, whole_path_batch_astar[k][0])  # 填充第一個點來分批移動
             
-        sum_path_length += int( max_path_length)
+                    sum_path_length += int( max_path_length)
 
-        # 將批次的路徑添加到 whole_paths
-        for l, path in enumerate(whole_path_batch_astar):
-            index =  sum_path_counts + l  
-            if index < len(whole_paths):
-                whole_paths[index].extend(path)
-            else:
-                print(f"Index out of range: {index}")
+                    # 將批次的路徑添加到 whole_paths
+                    for l, path in enumerate(whole_path_batch_astar):
+                        index =  sum_path_counts + l  
+                        if index < len(whole_paths):
+                            whole_paths[index].extend(path)
+                        else:
+                            print(f"Index out of range: {index}")
 
-        sum_path_counts += batch_size
+                    sum_path_counts += batch_size
+                # 檢查是否有碰撞，如遇碰撞則 DELAY_FACTOR - 1
+                collision = collision_or_not(whole_paths, Rl)  
+                if collision == True:
+                    delay_factor -= 1
+                    print(f"Delay factor decreased to {delay_factor}")
 
+                                
     for i in range(len(whole_paths)):
         if len(whole_paths[i]) == 0:
             print(f"第 {i} 批次路徑為空，無法進行模擬")

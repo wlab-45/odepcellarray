@@ -1,6 +1,0 @@
-﻿  Building Custom Rule C:/Users/Vivo/odepcellarray_fromlab/cbs/RVO2-main/examples/CMakeLists.txt
-  Circle.cc
-C:\Users\Vivo\odepcellarray_fromlab\cbs\RVO2-main\src\RVO.h(1,1): warning C4819: 檔案含有無法在目前字碼頁 (950) 中表示的字元。請以 Unicode 格式儲存檔案以防止資料遺失
-  (編譯來源檔案 '../../examples/Circle.cc')
-  
-  Circle.vcxproj -> C:\Users\Vivo\odepcellarray_fromlab\cbs\RVO2-main\build\examples\Debug\Circle.exe
