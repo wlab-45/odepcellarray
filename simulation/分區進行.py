@@ -217,25 +217,33 @@ def wholestep5_draw_light_image(arrayimage, target_numbers,size, file_name, colu
     return target_coordinate, obstacle_coordinate, circle_in_array_not_traget, light_image ,upadate_all_coordinate, all_coordinate
 
 ##step 6 
-def structure_and_center_of_array(columns, rows, size):
-    array_arrangeby_batches = [[] for _ in range(min(rows, columns))]
+# def structure_and_center_of_array(columns, rows, size):
+#     array_arrangeby_batches = [[] for _ in range(min(rows, columns))]
     
-    for start in range(min(rows, columns)):
-        k = start * 2 + 1  # 讓每個 start 產生不同的 k
-        # 提取 L 型區域的行
-        for j in range(k, columns * 2, 2):
-            array_arrangeby_batches[start].append((size * j // 2, size * k // 2))
+#     for start in range(min(rows, columns)):
+#         k = start * 2 + 1  # 讓每個 start 產生不同的 k
+#         # 提取 L 型區域的行
+#         for j in range(k, columns * 2, 2):
+#             array_arrangeby_batches[start].append((size * j // 2, size * k // 2))
 
-        # 提取 L 型區域的列
-        for i in range(k + 2, rows * 2, 2):
-            array_arrangeby_batches[start].append((size * k // 2, size * i // 2))
-        #print(f"陣列區第{start + 1}批長度:{len(array_arrangeby_batches[start])}")
-    #print(f"陣列區總長度(批次數):{len(array_arrangeby_batches)}")
-    return array_arrangeby_batches
+#         # 提取 L 型區域的列
+#         for i in range(k + 2, rows * 2, 2):
+#             array_arrangeby_batches[start].append((size * k // 2, size * i // 2))
+#         #print(f"陣列區第{start + 1}批長度:{len(array_arrangeby_batches[start])}")
+#     #print(f"陣列區總長度(批次數):{len(array_arrangeby_batches)}")
+#     return array_arrangeby_batches
+'''以橫排為一批次'''
+def structure_and_center_of_array (columns, rows, size):
+    array_layers = [[] for _ in range(rows)]
+    for i in range(rows):  #假設每層3格(3*3矩陣)則標號為layer(row) 0,1,2 每層格編號(左至右)
+        for j in range(1, columns*2, 2):
+            k=i+1
+            array_layers[i].append((size *j// 2, size *(2*k-1)//2))
+    return array_layers
 
 # 分配座標
 # version2
-def assignment(target_coordinate, size, columns, rows):
+'''def assignment(target_coordinate, size, columns, rows):
     matched_target_and_array=[[] for _ in range (min(rows, columns))]
     target_numbers= len(target_coordinate)
     #儲存左上、右上、左下、右下陣列中心點
@@ -263,8 +271,32 @@ def assignment(target_coordinate, size, columns, rows):
         for j in range(len(points_arrangeby_batches[start])):
             matched_target_and_array[start].append((points_arrangeby_batches[start][j], array[start][j]))
     #print(f'length of matched_target_and_array list={len(matched_target_and_array)}')
-    return matched_target_and_array   
+    return matched_target_and_array'''   
+# 恆排版本
+# version2
+def assignment(target_coordinate, size, columns, rows):
+    matched_target_and_array= [[] for _ in range (rows)] 
+    #儲存左上、右上、左下、右下陣列中心點
+    array = structure_and_center_of_array(columns, rows, size)
+    target_coordinate_batches = [[] for _ in range (rows)] 
     
+    for start in range(rows):
+        if len(target_coordinate) < columns:
+            print(f"剩餘 target_coordinate ({len(target_coordinate)}) 少於預期的 {columns} 個")
+            break  
+        
+        #先依y座標排序，再分batch
+        target_coordinate = sorted(target_coordinate, key= lambda p: p[1])# 排序y座標
+        target_coordinate_batch = target_coordinate[:columns]
+        target_coordinate = target_coordinate[columns:]  # 扣除已經排序的點
+        target_coordinate_batches[start]= sorted(target_coordinate_batch, key= lambda p: p[0])# 排序x座標
+
+        #print(f" 點區域  第 {start + 1} 批的點數: {len(target_coordinate_batches[start])}")
+        for j in range(columns):
+            matched_target_and_array[start].append((target_coordinate_batches[start][j], array[start][j]))
+    print(f'length of matched_target_and_array list={len(matched_target_and_array)}')
+    return matched_target_and_array
+
 def straight_path(matched_target_and_array, batch_counts, step_size):
     whole_paths = [[] for _ in range(batch_counts)]
     
@@ -393,11 +425,6 @@ def a_star(start_grid, target_grid, obstacle_coordinates, walkable_grid, grid_si
             (1, -1),   # 右斜上
             (1, 1)     # 右斜下
         ]
-        '''ection_second = [   
-            (1, 0),    # 右
-            (1, -1),   # 右斜上
-            (1, 1)     # 右斜下
-        ]'''
         neighbors = []
         for dx, dy in directions_first:
             # 移除 grid_size 相乘
@@ -408,16 +435,6 @@ def a_star(start_grid, target_grid, obstacle_coordinates, walkable_grid, grid_si
                 0 <= neighbor_y < len(walkable_grid) and 
                 walkable_grid[neighbor_y][neighbor_x]):  # 檢查是否可通行
                 neighbors.append((neighbor_x, neighbor_y))
-        '''if not neighbors:
-            for dx, dy in direction_second:
-                # 移除 grid_size 相乘
-                neighbor_x = x + dx
-                neighbor_y = y + dy
-                # 確保鄰居在邊界內且是可通行的
-                if (0 <= neighbor_x < len(walkable_grid[0]) and 
-                    0 <= neighbor_y < len(walkable_grid) and 
-                    walkable_grid[neighbor_y][neighbor_x]):  # 檢查是否可通行
-                    neighbors.append((neighbor_x, neighbor_y))'''
         return neighbors
 
     open_set = []
@@ -654,9 +671,6 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
                     particle_coor[0] = point[0] + int(dx * scale)
                     particle_coor[1] = point[1] + int(dy * scale)
         
-        if random_signal() == 1:
-            print("有粒子掉落")
-        
         scale_percent = 50
         width = int(display_img.shape[1] * scale_percent / 100)
         height = int(display_img.shape[0] * scale_percent / 100)
@@ -707,19 +721,13 @@ def collision_in_path(whole_path, Rl):
                 dx = abs(active_points[i][0] - active_points[j][0])
                 dy = abs(active_points[i][1] - active_points[j][1])
                 
-                if dx**2 + dy**2 < (2*(Rl+10))**2:  # 10是來自於光圈thickness
+                if dx**2 + dy**2 < (2*(Rl+5))**2:  # 10是來自於光圈thickness
                     collision_list.append((path_indices[i], path_indices[j], step))  
     
     return collision_list  
 
 #修正路徑直到沒有碰撞
 def resolve_collisions(whole_path, Rl, step_size):
-    # whole_path格式更改為一維
-    '''whole_path = []
-    for batch in whole_path:
-        for path in batch:
-            whole_path.append(path)'''
-
     collision_info = collision_in_path(whole_path, Rl)
     n = 0
     collision_info = [collision for collision in collision_info if collision[2] > 2* (Rl+10) // step_size +1]
@@ -767,49 +775,22 @@ def resolve_collisions(whole_path, Rl, step_size):
             return whole_path, len(collision_info)
     return whole_path, len(collision_info)
 
-#檢查外部先被填滿
-def check_external_filling(whole_path_batch):
-    #檢查是否有外部先被填滿的狀況
-    paths_length = [len(path) for path in whole_path_batch]
-    path_error = []
-    # 檢查當前時間步的所有點，是否有兩點距離過近
-    for i in range(len(whole_path_batch)):
-        for j in range(i + 1, len(whole_path_batch)):
-            if paths_length[i] > paths_length[j]:
-                path_error.append((i, paths_length[i], j, paths_length[j]))
-                #print(f"路徑 {i} 長度 {paths_length[i]} 比路徑 {j} 長度 {paths_length[j]}長")
-    return path_error
-
-#校正外部先被填滿
-def correction_of_path(whole_path_batch, step_size, size, obsticle_coordinates, path_error,  light_image):
-
-    while path_error:
-        new_assigned_match = [[]for _ in range(2)]
-        idx_first_p, path_length_first, idx_second_p, path_length_second = path_error[0]
-        path_length_diff = abs(path_length_first - path_length_second)
-        light_image_copy= light_image.copy()
-        # 外部顆粒延遲移動
-        if  idx_first_p < idx_second_p:
-            for i in range (path_length_diff):
-                whole_path_batch[idx_second_p].insert(0, whole_path_batch[idx_second_p][0])
-            path_error = check_external_filling(whole_path_batch)
-        else: 
-            for i in range (path_length_diff):
-                whole_path_batch[idx_first_p].insert(0, whole_path_batch[idx_first_p][0])
-            path_error = check_external_filling(whole_path_batch)
-        if not path_error:
-            return whole_path_batch
-    return whole_path_batch
-
-
-
-def random_signal(): #模擬有粒子拖不動時
-    return 1 if random.randint(1, 100) == 1 else 0  # 以 1% 概率返回 1
-    
+def particle_too_close(whole_path_batch,step_size, Rl, size):
+    for i, path in enumerate(whole_path_batch):
+        for i+1, path_2 in enumerate(whole_path_batch):
+            point1 = path[0]
+            point2 = path_2[0]
+            if distance_calculation(point1, point2) < Rl+5:
+                if len(path) > path_2:
+                    for _ in range(size):
+                        path.insert(0, path[0])
+                else: 
+                    for _ in range(size):
+                        path_2.insert(0, path_2[0])
 
 # 主函數
 if __name__ == '__main__':
-    Rl, Rp = 15, 9  # 光圈半徑和粒子半徑    
+    Rl, Rp = 30, 9  # 光圈半徑和粒子半徑    
     obstacle_coordinate = []
     target_coordinate = []
     circle_in_array_not_traget = []
@@ -844,21 +825,12 @@ if __name__ == '__main__':
         obstacle_coordinate_changed.extend([start_point for batch in after_start for start_point, _ in batch])
 
         whole_path_batch, step_size, path_time, path_no_found = whole_step_6_draw_path(batch_counts, copyimage, size, obstacle_coordinate_changed, file_name, columns, rows, matched_target_and_array_batch)
-        # 打印 whole_paths 以確認結果
-        #for i, path in enumerate(whole_path_batch):
-        #    print(f"Path_batch {start} number{i}: {len(path)}")
 
-        #檢查是否有外部先被填滿的狀況
-        path_error = check_external_filling(whole_path_batch)
-        
-        if len(path_error) > 0:
-            #print(f"!!!!!第 {start} 批次的路徑存在外部先被填滿的狀況")
-            correction_of_path(whole_path_batch, step_size, size, obstacle_coordinate, path_error, light_image)
-            
+        whole_path_batch = particle_too_close(whole_path_batch,step_size, Rl)    
         #檢查碰撞
-        '''whole_path_batch, length_of_path_collision = resolve_collisions(whole_path_batch, Rl, step_size)
+        whole_path_batch, length_of_path_collision = resolve_collisions(whole_path_batch, Rl, step_size, size)
         if length_of_path_collision > 0:
-            print(f"!!!!!第 {start} 批次的路徑仍然存在碰撞")'''
+            print(f"!!!!!第 {start} 批次的路徑仍然存在碰撞")
         
         # 填充 path 至一樣長度
         max_path_length = max(len(path) for path in whole_path_batch)  # 找最長的路徑
@@ -866,7 +838,7 @@ if __name__ == '__main__':
         for k in range(len(whole_path_batch)):
             while len(whole_path_batch[k]) < max_path_length:
                 whole_path_batch[k].append(whole_path_batch[k][-1])  # 最後一點填充(表一直在陣列終點)
-            for m in range( int(1/5 * sum_path_length)):   #可以設定每批開始移動的間隔時間
+            for m in range( int(1 * sum_path_length)):   #可以設定每批開始移動的間隔時間
                 whole_path_batch[k].insert(0, whole_path_batch[k][0])  # 填充第一個點來分批移動
             
         #for i, path in enumerate(whole_path_batch):
@@ -883,10 +855,10 @@ if __name__ == '__main__':
 
         sum_path_counts += batch_counts
         
-    #最後檢查可能的碰撞
-    whole_paths, length_of_path_collision = resolve_collisions(whole_paths, Rl, step_size)
-    if length_of_path_collision > 0:
-        print(f"!!!!!第 {start} 批次的路徑已超過迴圈數限制，仍然存在碰撞")
+    # #最後檢查可能的碰撞
+    # whole_paths, length_of_path_collision = resolve_collisions(whole_paths, Rl, step_size)
+    # if length_of_path_collision > 0:
+    #     print(f"!!!!!第 {start} 批次的路徑已超過迴圈數限制，仍然存在碰撞")
     
     # 打印 whole_paths 以確認結果
     #for i, path in enumerate(whole_paths):

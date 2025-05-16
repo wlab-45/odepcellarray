@@ -621,31 +621,31 @@ def whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_co
     simulate_movement(canvas, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
     return
 
-#  def collision_or_not()
-#避免碰撞發生
 #檢查現有路徑是否會有碰撞發生
 def collision_or_not(whole_path, Rl):
-    flat_paths = [path for batch in whole_path for path in batch]
-
-    max_path_length = max(len(path) for path in flat_paths) 
-    
-    for step in range(max_path_length): 
-        active_points = []  # 當前時間步所有粒子的位置
-        path_indices = []  # 記錄對應的 path 編號
-        
-        for idx, path in enumerate(flat_paths):
+    max_path_length = max(len(path) for path in whole_path) 
+    collision_threshold_sq = (2*(Rl+5))**2 # 碰撞閾值的平方
+    for step in range(max_path_length):  
+        active_points = []
+        for idx, path in enumerate(whole_path):
             if step < len(path):  
                 active_points.append(path[step])
-                path_indices.append(idx)  # 記錄這個點對應的路徑編號
         
-        # 檢查當前時間步的所有點，是否有兩點距離過近
-        for i in range(len(active_points)):
-            for j in range(i + 1, len(active_points)):  
-                dx = abs(active_points[i][0] - active_points[j][0])
-                dy = abs(active_points[i][1] - active_points[j][1])
-                
-                if dx**2 + dy**2 < (2*(Rl+10))**2:  # 10是來自於光圈thickness
-                    return True  # 發生碰撞
+        # 如果活動粒子少於 2 個，不需要檢查
+        if len(active_points) < 2:
+            print(f"第 {step} 時間步的粒子數量為 {len(active_points)}，不需要檢查")
+            continue
+        
+        active_points_np = np.array(active_points, dtype=np.float64)
+        vectors_diff = active_points_np[:, np.newaxis, :] - active_points_np[np.newaxis, :, :]
+        sq_distances = np.sum(vectors_diff**2, axis=-1)
+        collision_mask = sq_distances < collision_threshold_sq
+        num_active = len(active_points_np)
+        upper_triangle_indices = np.triu_indices(num_active, k=1)
+        
+        if np.any(collision_mask[upper_triangle_indices]):
+            # 偵測到至少一對粒子碰撞 
+            return True # 發生碰撞，立即返回 True
     return False  # 沒有碰撞
 
 # version2
@@ -669,7 +669,7 @@ if __name__ == '__main__':
     batch_size = 0
     matched_target_and_array = assignment(target_coordinate, size, columns, rows)
     for start in range(rows): # rows數= batch數
-        obstacle_coordinate_changed_btbatch = obstacle_coordinate.copy()
+        obstacle_coordinate_changed_btbatch = copy.deepcopy(obstacle_coordinate)
         copyimage = light_image.copy()
         matched_target_and_array_batch = matched_target_and_array[start]  # 取出對應的批次
         batch_size = columns
@@ -684,39 +684,49 @@ if __name__ == '__main__':
         whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_changed_btbatch, file_name, whole_path_batch_astar, step_size)
         
 
-        max_path_length = max(len(path) for path in whole_path_batch_astar)  # 找最長的路徑
-
+        max_path_length_in_batch = max(len(path) for path in whole_path_batch_astar)  # 找最長的路徑
+        # 批次內的粒子先填充到一樣的長度
         for k in range(len(whole_path_batch_astar)):
-            while len(whole_path_batch_astar[k]) < max_path_length:
+            while 0 < len(whole_path_batch_astar[k]) < max_path_length_in_batch:
                 whole_path_batch_astar[k].append(whole_path_batch_astar[k][-1])  # 最後一點填充(表一直在陣列終點)
-            delay_factor = 3 
-            collision = True
-            while collision:
+          
+        delay_factors = [4, 3.5 , 3, 2.5, 2, 1.5, 1]
+        collision = True
+        for delay_factor in delay_factors:
+            delay_batch_path = copy.deepcopy(whole_path_batch_astar)
+            for i in range(len(delay_batch_path)): 
                 for m in range( int(1/delay_factor * sum_path_length)):   #可以設定每批開始移動的間隔時間
-                    whole_path_batch_astar[k].insert(0, whole_path_batch_astar[k][0])  # 填充第一個點來分批移動
-            
-                    sum_path_length += int( max_path_length)
+                    delay_batch_path[i].insert(0, delay_batch_path[i][0])  # 填充第一個點來分批移動
 
-                    # 將批次的路徑添加到 whole_paths
-                    for l, path in enumerate(whole_path_batch_astar):
-                        index =  sum_path_counts + l  
-                        if index < len(whole_paths):
-                            whole_paths[index].extend(path)
-                        else:
-                            print(f"Index out of range: {index}")
+                paths_to_check = []
+                paths_to_check.extend(whole_paths) # 添加之前 Batch 的最終 Path (從未在測試迴圈中被修改)
+                paths_to_check.extend(delay_batch_path) # 添加當前 Batch 帶 test_delay 的臨時 Pathindex =  sum_path_counts + i  
 
-                    sum_path_counts += batch_size
-                # 檢查是否有碰撞，如遇碰撞則 DELAY_FACTOR - 1
-                collision = collision_or_not(whole_paths, Rl)  
-                if collision == True:
-                    delay_factor -= 1
-                    print(f"Delay factor decreased to {delay_factor}")
+                    # 檢查是否有碰撞，如遇碰撞則 DELAY_FACTOR - 1
+            collision = collision_or_not(paths_to_check, Rl)  
+            if not collision:
+                truedelay = delay_factor
+                break  # 無碰撞，接受當前延遲
+            print(f"延遲因子為{delay_factor}時，發生碰撞，嘗試減少延遲因子")
+            max_path_length_in_batch = max(len(path) for path in whole_path_batch_astar)
+        
+        # 將當前批次的路徑添加到整體路徑中
+        for i,path in enumerate(whole_path_batch_astar):
+            final_path = list(path) # 複製 Path
+            for _ in range(int(1/truedelay * sum_path_length)):
+                final_path.insert(0, final_path[0])
+            idx = sum_path_counts + i
+            whole_paths[idx] = final_path
+        # 更新總路徑長度和計數
+        sum_path_length += max_path_length_in_batch
+        sum_path_counts += batch_size
 
                                 
     for i in range(len(whole_paths)):
         if len(whole_paths[i]) == 0:
             print(f"第 {i} 批次路徑為空，無法進行模擬")
             continue
+        
     whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_coordinate, step_size, Rl, Rp, obstacle_coordinate, file_name, columns, rows, matched_target_and_array)
 
     

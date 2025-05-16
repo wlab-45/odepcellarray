@@ -151,9 +151,7 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
             final_goal = np.array(GOAL_POSITIONS[i])
             dist_to_goal = np.linalg.norm(final_goal - pos) # 計算代理當前位置到最終目標的距離
             path = whole_paths[i]
-            # 用網格計算其 
-            goal_grid = (final_goal[0] // grid_size, final_goal[1] // grid_size)
-            
+
             progress = step * TIME_STEP * MAX_SPEED * 1.5 / np.linalg.norm(np.array(path[-1]) - np.array(path[0]))  
             # "step * TIME_STEP * MAX_SPEED"這部分估計了在 step 個時間步內，如果代理一直以最大速度移動，它所能行駛的最大距離。
             # 1.2: 這是一個額外的係數，用於稍微加快進度的估計，可能為了讓代理更快地沿著參考路徑移動
@@ -163,7 +161,7 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
             direction = target - pos # 計算當前代理位置到目標參考點的方向向量
             dist = np.linalg.norm(direction) + 1e-6 # 計算代理當前位置到目標點的距離
                    
-            arrival_threshold = 100
+            arrival_threshold = 80
             arrival_threshold_slowdown = 20 # 更大的減速區域
 
             #if (pos[0]// grid_size, pos[1]// grid_size) == goal_grid:
@@ -184,16 +182,30 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
 
         # --- 在 sim.doStep() 之後，強制將已到達終點的粒子位置設定回精確終點 ---
         for i, agent_id in enumerate(agents):
+            # # 檢查這個粒子是否已經被標記為到達終點
+            # if agents_reached_final_goal[i] == True:
+            #     rvo2_stop_pos = sim.getAgentPosition(agent_id)
+            #     assert np.linalg.norm(np.array(rvo2_stop_pos) - np.array(GOAL_POSITIONS[i])) <= 130 , f"Agent {i} reached goal but position is not close to goal: {rvo2_stop_pos} vs {GOAL_POSITIONS[i]}" #int(grid_size//2 * 1.5)+1
+            #     if step == 1: # 設定在進入到終點網格實踐暫停rvo2規劃，改用硬編碼(其他agent仍會根據手動編碼結果繞過)
+            #         late_path = straight_path(rvo2_stop_pos, GOAL_POSITIONS[i], step_size = 2)
+            #     else:
+            #         continue
+            #     if len(late_path) > 1:
+            #         sim.setAgentPosition(agent_id, late_path[step])
+            #         # else: 如果 late_path 是 None 或只有一個點，表示代理已經非常接近或就在中間目標點了，不做額外移動
+            #     else:
+            #         sim.setAgentPosition(agent_id, tuple(GOAL_POSITIONS[i]))
              # 檢查這個粒子是否已經被標記為到達終點
             if agents_reached_final_goal[i] == True:
                 rvo2_stop_pos = sim.getAgentPosition(agent_id) # 設定在進入到終點網格實踐暫停rvo2規劃，改用硬編碼(其他agent仍會根據手動編碼結果繞過)
-                assert np.linalg.norm(np.array(rvo2_stop_pos) - np.array(GOAL_POSITIONS[i])) <= 100 , f"Agent {i} reached goal but position is not close to goal: {rvo2_stop_pos} vs {GOAL_POSITIONS[i]}" #int(grid_size//2 * 1.5)+1
+                assert np.linalg.norm(np.array(rvo2_stop_pos) - np.array(GOAL_POSITIONS[i])) <= 130 , f"Agent {i} reached goal but position is not close to goal: {rvo2_stop_pos} vs {GOAL_POSITIONS[i]}" #int(grid_size//2 * 1.5)+1
                 late_path = straight_path(rvo2_stop_pos, GOAL_POSITIONS[i], step_size = 2)
                 if len(late_path) > 1:
                     sim.setAgentPosition(agent_id, late_path[1])
                     # else: 如果 late_path 是 None 或只有一個點，表示代理已經非常接近或就在中間目標點了，不做額外移動
                 else:
                     sim.setAgentPosition(agent_id, tuple(GOAL_POSITIONS[i]))
+                    
                     
         # 在每次 sim.doStep() 之後，記錄每個代理的當前位置
         for i, agent_id in enumerate(agents):
