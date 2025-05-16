@@ -46,16 +46,23 @@ def generate_mid_points_to_goal(OBSTACLE_CENTERS, REAL_GOAL_POSITIONS, grid_size
     #                 continue
     #         assert check_midpoint_and_obstacle(mid_point, OBSTACLE_CENTERS, grid_size) is None, f"Mid-point {mid_point} overlaps with obstacle {obs}."
     #         mid_points[i+1] = (mid_points_x_odd, mid_points_y_odd) # 再填入1,3,5,7.....
+    max_iterations = 3
+    iterations = 0
     for i in range(len(REAL_GOAL_POSITIONS)):
         mid_point = (30 + i* 80, y_of_goal + grid_size)  
-        mid_points[i] = mid_point
-        while True:
+        while True and iterations < max_iterations:
+            iterations += 1
             obs = check_midpoint_and_obstacle(mid_point, OBSTACLE_CENTERS, grid_size)
             if obs is None:
                 break
             else:
-                mid_point[1] = mid_point[1] - grid_size
+                if iterations ==1:
+                    mid_point[1] = mid_point[1] - grid_size
+                else: 
+                    mid_point = REAL_GOAL_POSITIONS[i]
                 continue
+            
+        mid_points[i] = mid_point
     return mid_points
 
 
@@ -92,7 +99,7 @@ def straight_path(current_point, target_center, step_size):
        path.append(target_center)    
     return path
 
-def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size):
+def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size, mode):
     all_agent_paths = [[] for _ in range(NUM_CIRCLES)]
     # 初始化 RVO2 模擬器
     sim = rvo2.PyRVOSimulator(TIME_STEP, NEIGHBOR_DIST, 5, TIME_HORIZON, 3, CIRCLE_RADIUS, MAX_SPEED) # 5: 一個代理在避碰計算時最多考慮的鄰居數量, timeHorizon: 代理間避碰的時間視界, timeHorizonObst (腳本中為 2): 代理與靜態障礙物避碰的時間視界
@@ -130,15 +137,17 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
     
     # 設置直線路徑作為參考路徑
     whole_paths = []
-    for i, agent in enumerate(agents):
-        start = START_POSITIONS[i]
-        # print(f"lenth of GOAL_POSITIONS = {len(GOAL_POSITIONS)}")
-        # print(GOAL_POSITIONS)
-        goal = GOAL_POSITIONS[i]
-        pixel_path = straight_path(start, goal, step_size=3)
-        #print(f"Agent {i} start: {start}, goal: {goal}, pixel path length: {len(pixel_path)}, path: {pixel_path[:5]}...")
-        whole_paths.append(pixel_path)
-    
+    if mode == "straight_path":
+        for i, agent in enumerate(agents):
+            start = START_POSITIONS[i]
+            # print(f"lenth of GOAL_POSITIONS = {len(GOAL_POSITIONS)}")
+            # print(GOAL_POSITIONS)
+            goal = GOAL_POSITIONS[i]
+            pixel_path = straight_path(start, goal, step_size=3)
+            #print(f"Agent {i} start: {start}, goal: {goal}, pixel path length: {len(pixel_path)}, path: {pixel_path[:5]}...")
+            whole_paths.append(pixel_path)
+    elif mode == "a_star":
+        pass
     agents_reached_final_goal = [False] * NUM_CIRCLES # 追蹤是否到達最終目標
     step = 0
     
@@ -251,7 +260,8 @@ def complete_path(all_agent_paths, REAL_GOAL_POSITIONS, OBSTACLE_CENTERS,obstacl
                 raise ValueError("Agent{i}'s path is empty.")            
     return all_agent_paths
 
-def orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius):
+def orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, mode):
+    assert mode in ["straight_path", "a_star"], f"Invalid mode: {mode}. Choose 'straight_path' or 'a_star'." 
     # 場景參數
     SCENE_WIDTH = image_width  # 像素
     SCENE_HEIGHT = image_height
@@ -277,7 +287,7 @@ def orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_bt
 
     # start orca planning
     start_time = time.time()
-    all_agent_paths, SUCCESS = main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size)
+    all_agent_paths, SUCCESS = main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size, mode)
     final_paths = complete_path(all_agent_paths, REAL_GOAL_POSITIONS, OBSTACLE_CENTERS, obstacle_radius)
     print(f"total time = {time.time()- start_time}")
     # 四捨五入 final_paths

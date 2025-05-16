@@ -4,21 +4,15 @@ import tkinter as tk
 from tkinter import filedialog,simpledialog
 import os
 import math, random
-import heapq
 import copy
 import time
-import matplotlib.pyplot as plt
-import heapq
 import math
-import time
 import heapq
 import math
 from collections import namedtuple, defaultdict
-import multiprocessing as mp
-import time
-from functools import partial
 #from cbs import cbs_planning
 from ORCA_RVO2 import orca_planning
+
 
 
 def create_canvas_and_draw_circles(output_folder, radius, length, width, size, file_i = 30):
@@ -134,7 +128,7 @@ def read_coordinates_from_file(file_path):
                 coordinates.append((x, y))
     return coordinates
 
-def form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file_name):
+def form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file_name, Rl):
     all_coordinates =  read_coordinates_from_file(coordinates_file_path) # 初始化空列表以存儲座標
     
     all_sorted_coordinates = sorted(all_coordinates, key=lambda point: math.sqrt(point[0]**2 + point[1]**2))
@@ -142,7 +136,7 @@ def form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file
     obsticle_coordinates = []
     # 繪製障礙物，確保不與紅色圓點重疊
     obsticle_image = arrayimage.copy()
-    radius = 15
+    radius = Rl + 10
     for i in range(5):
         while True:
             x, y = np.random.randint(size*int(math.sqrt(target_numbers)), 1814), np.random.randint(size*int(math.sqrt(target_numbers)), 1220)
@@ -155,9 +149,6 @@ def form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file
     cv2.imwrite(array_image_path, obsticle_image)
 
     return all_sorted_coordinates, obsticle_image, obsticle_coordinates
-
-def calculate_distance(point1,point2):
-    return math.sqrt((point1[0]-point2[0])**2+(point1[1]-point2[1])**2)
 
 # 無優先版本
 def picking_target(all_coordinate, size, columns, rows):
@@ -182,7 +173,7 @@ def draw_light_image(arrayimage, target_coordinate):
         cv2.circle(light_image , target_coordinate[i] , int(2*7+5),(250,250,255), 10) 
     return light_image    
         
-def wholestep5_draw_light_image(arrayimage, target_numbers,size, file_name, columns, rows):
+def wholestep5_draw_light_image(arrayimage, target_numbers,size, file_name, columns, rows, Rl):
     #generate 4 list
     all_coordinate=[]
     target_coordinate=[]
@@ -193,7 +184,7 @@ def wholestep5_draw_light_image(arrayimage, target_numbers,size, file_name, colu
     file_name_without_ext = os.path.splitext(file_name)[0]
     coordinates_file_path = os.path.join(txt_folder, f'{file_name_without_ext}.txt')
     #generating all_cooridinate
-    all_coordinate, obsticle_image, obstacle_coordinate = form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file_name)
+    all_coordinate, obsticle_image, obstacle_coordinate = form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file_name, Rl)
     print(f'length of all_coordinate list={len(all_coordinate)}')
     
     #picking target
@@ -252,20 +243,20 @@ def assignment(target_coordinate, size, columns, rows):
     print(f'length of matched_target_and_array list={len(matched_target_and_array)}')
     return matched_target_and_array
 
+
 def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, obstacle_radius=15):
     start_time = time.time()
     grid_size = size
-    # ORCA規劃優先
-    final_paths, ORCA_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
-    
-    # if ORCA_SUCCESS == False:
-    #     print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
-    #     # A*規劃
-    #     final_paths, Astar_SUCCESS = (matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
+    # ORCA規劃並以直線距離作為參考路徑優先 (最快，適用於障礙物少的情況)
+    final_paths, ORCA_STAIGHT_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius,  mode = "straight_path")
+    if ORCA_STAIGHT_SUCCESS == False:
+        print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
+        # A*規劃
+        final_paths, Astar_SUCCESS = (matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
         
-    #     if Astar_SUCCESS == False:
-    #         print("A*規劃失敗，無法找到路徑")
-    #         return None
+        if Astar_SUCCESS == False:
+            print("A*規劃失敗，無法找到路徑")
+            return None
     
     
     if final_paths is None:
@@ -442,7 +433,7 @@ def whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_chan
     step_size =int(step_size)
     
     # 繪製移動路徑                                                           
-    image_with_paths = draw_and_get_paths(light_image, whole_path_batch_astar, obstacle_coordinate_changed_btbatch, batch_size, size)
+    image_with_paths = draw_and_get_paths(copyimage, whole_path_batch_astar, obstacle_coordinate_changed_btbatch, batch_size, size)
     scale_percent = 50  # 缩放比例
     width = int(image_with_paths.shape[1] * scale_percent / 100)
     height = int(image_with_paths.shape[0] * scale_percent / 100)
@@ -456,6 +447,7 @@ def whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_chan
     path_save_directory="C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\path_image"
     path_image_path = os.path.join(path_save_directory, f'path_{file_name}')
     cv2.imwrite(path_image_path, image_with_paths)   
+ 
     
 ## step 7s
 
@@ -619,7 +611,6 @@ def whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_co
     canvas = np.zeros((1220, 1814, 3), dtype=np.uint8)
     generate_array(canvas, size, columns, rows)
     simulate_movement(canvas, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
-    return
 
 #檢查現有路徑是否會有碰撞發生
 def collision_or_not(whole_path, Rl):
@@ -650,6 +641,7 @@ def collision_or_not(whole_path, Rl):
 
 # version2
 if __name__ == '__main__':
+    
     obstacle_coordinate = []
     target_coordinate = []
     Rl, Rp = 15, 9  # 光圈半徑和粒子半徑
@@ -660,7 +652,8 @@ if __name__ == '__main__':
     step_size = 3
     
     size, target_numbers, arrayimage, file_name, columns, rows = wholestep3_draw_array_picture(output_folder, Rp)
-    target_coordinate, obstacle_coordinate, light_image, all_sorted_coordinate = wholestep5_draw_light_image(arrayimage, target_numbers, size, file_name, columns, rows)
+    start_time = time.time()
+    target_coordinate, obstacle_coordinate, light_image, all_sorted_coordinate = wholestep5_draw_light_image(arrayimage, target_numbers, size, file_name, columns, rows, Rl)
 
     # 分區(L型)分配座標
     whole_paths = [[] for _ in range(len(target_coordinate))]
@@ -690,7 +683,7 @@ if __name__ == '__main__':
             while 0 < len(whole_path_batch_astar[k]) < max_path_length_in_batch:
                 whole_path_batch_astar[k].append(whole_path_batch_astar[k][-1])  # 最後一點填充(表一直在陣列終點)
           
-        delay_factors = [4, 3.5 , 3, 2.5, 2, 1.5, 1]
+        delay_factors = [3.5 , 3, 2.5, 2, 1.5, 1]
         collision = True
         for delay_factor in delay_factors:
             delay_batch_path = copy.deepcopy(whole_path_batch_astar)
@@ -729,4 +722,4 @@ if __name__ == '__main__':
         
     whole_step7_simulate_moving(size, target_numbers, whole_paths, all_sorted_coordinate, step_size, Rl, Rp, obstacle_coordinate, file_name, columns, rows, matched_target_and_array)
 
-    
+    print(f"總耗時: {time.time() - start_time:.2f} 秒")
