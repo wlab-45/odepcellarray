@@ -1,4 +1,6 @@
+# -*- coding: utf-8 -*-
 # cython: boundscheck=False, wraparound=True
+# cython: cdivision=True 
 
 import numpy as np
 cimport numpy as cnp
@@ -6,11 +8,12 @@ import math
 import os
 import cv2
 import random
+import time
 
 
 from libc.math cimport sqrt
 from libc.stdlib cimport rand, srand
-from libc.time cimport time
+
 
 
 ############################## step3
@@ -170,42 +173,27 @@ cpdef list assignment(list target_coordinate, int size, int columns, int rows):
     print(f'length of matched_target_and_array list={len(matched_target_and_array)}')
     return matched_target_and_array
 
-'''cpdef list path_for_batch(list matched_target_and_array_batch, list obstacle_coordinate_changed_btbatch, int size, int image_width, int image_height, int step_size, int Rl, int obstacle_radius=15):
-    cdef double end_time, start_time
-    start_time = time.time()
-    grid_size = size
-    # ORCA規劃並以直線距離作為參考路徑優先 (最快，適用於障礙物少的情況)
-    final_paths, ORCA_STAIGHT_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius,   = "straight_path")
-    if ORCA_STAIGHT_SUCCESS == False:
-        print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
-        # A*規劃
-        final_paths, Astar_SUCCESS = (matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
-        
-        if Astar_SUCCESS == False:
-            print("A*規劃失敗，無法找到路徑")
-            return None
-    
-    if final_paths is None:
-        print("無法找到路徑，請檢查參數或障礙物配置。")
-        raise ValueError("無法找到路徑")  
-    end_time = time.time()
-    print(f"\n⏱️ 總耗時: {end_time - start_time:.2f} 秒")
-    return final_paths'''
-
 # for a*
-cdef list convert_to_grid_coordinates(int image_width, int image_height, list obstacle_coordinates, int grid_size, int obstacle_radius=25):
-    cdef int num_rows, num_cols, grid_y, grid_x
-    cdef list walkable_grid
+cpdef cnp.ndarray[cnp.uint8_t, ndim=2] convert_to_grid_coordinates(int image_width, int image_height, list obstacle_coordinates, int grid_size, int obstacle_radius=25):
+    cdef Py_ssize_t num_rows, num_cols
+    cdef int grid_y, grid_x
 
     # 計算網格的行數和列數
     num_rows = (image_height + grid_size - 1) // grid_size
     num_cols = (image_width + grid_size - 1) // grid_size
 
     # 建立網格，可通行的默認為 True
-    walkable_grid = [[True for _ in range(num_cols)] for _ in range(num_rows)]
+    cdef cnp.ndarray[cnp.uint8_t, ndim=2] walkable_grid_np = np.ones((num_rows, num_cols), dtype=np.uint8)
+    cdef cnp.uint8_t[:, :] walkable_mv = walkable_grid_np
+
+    cdef int ox, oy, start_grid_x, end_grid_x, start_grid_y, end_grid_y
+    cdef int grid_center_x, grid_center_y
+    cdef int dx, dy
 
     # 檢查每個障礙物
-    for (ox, oy) in obstacle_coordinates:
+    for obstacle in obstacle_coordinates:
+        ox = obstacle[0] # 確保從 list 中取出的是 int
+        oy = obstacle[1] # 確保從 list 中取出的是 int
         # 計算障礙物所影響的網格範圍
         start_grid_x = max(0, (ox - obstacle_radius) // grid_size)
         end_grid_x = min(num_cols - 1, (ox + obstacle_radius) // grid_size)
@@ -226,36 +214,53 @@ cdef list convert_to_grid_coordinates(int image_width, int image_height, list ob
 
                 # 若障礙物到網格中心的距離小於網格一半加上障礙物半徑，設置為不可通行
                 if dx <= grid_size // 2 + obstacle_radius or dy <= grid_size // 2 + obstacle_radius:
-                    walkable_grid[grid_y][grid_x] = False
-    return walkable_grid
+                    walkable_mv[grid_y ,grid_x] = 0  # 0代表false
+    
+    if image_width % grid_size != 0:
+        # 遍歷最右邊一列的所有行
+        for grid_y in range(num_rows):
+            walkable_mv[grid_y, num_cols - 1] = 0
+
+    # 如果圖片高度不是網格大小的整數倍，將最下面一排標記為不可通行
+    if image_height % grid_size != 0:
+        # 遍歷最下面一排的所有列
+        for grid_x in range(num_cols):
+            walkable_mv[num_rows - 1, grid_x] = 0
+    return walkable_grid_np
 
 # 路徑尋找
-cdef cnp.ndarray[cnp.uint8_t, ndim=3] draw_and_get_paths(cnp.ndarray[cnp.uint8_t, ndim=3] image, list whole_path_batch_astar, list obstacle_coordinate_changed_bybatch, int batch_size, int size):
-    cdef list whole_paths_batch
-    cdef int grid_y, grid_x
-    cdef int y, x, j
-    cdef int grid_size = size
+cdef cnp.ndarray[cnp.uint8_t, ndim=3] draw_and_get_paths(cnp.ndarray[cnp.uint8_t, ndim=3] image, list whole_path_batch_astar, int size, cnp.ndarray[cnp.uint8_t, ndim=2] walkable_grid_np):
+    cdef int grid_y, grid_x,top_left_x, top_left_y, bottom_right_x, bottom_right_y
+    cdef Py_ssize_t y_pixel, x_pixel # 使用 Py_ssize_t 命名更明確是像素座標
+    cdef Py_ssize_t grid_size = size # 使用 Py_ssize_t 以與 shape 相容
+    cdef Py_ssize_t num_rows, num_cols # 獲取網格的行列數
 
-    whole_paths_batch = [[] for _ in range(batch_size)]
-    # 取得影像尺寸
-    image_height, image_width = image.shape[:2]
+    # 取得影像尺寸 (使用 Py_ssize_t)
+    cdef Py_ssize_t image_height = image.shape[0]
+    cdef Py_ssize_t image_width = image.shape[1]
     
-
-    walkable_grid = convert_to_grid_coordinates(image_width, image_height, obstacle_coordinate_changed_bybatch, grid_size, obstacle_radius=15)
+    # 獲取網格的行列數 - 放在使用 num_rows 和 num_cols 之前
+    num_rows = walkable_grid_np.shape[0]
+    num_cols = walkable_grid_np.shape[1]
+        
+    cdef cnp.uint8_t[:, :] walkable_mv = walkable_grid_np
     
     # 繪製網格
-    for y in range(0, image_height, grid_size):
-        cv2.line(image, (0, y), (image_width, y), (200, 200, 200), 1)  # 橫線
-    for x in range(0, image_width, grid_size):
-        cv2.line(image, (x, 0), (x, image_height), (200, 200, 200), 1)  # 縱線
+    for y_pixel in range(0, image_height, grid_size):
+        # cv2 函數通常可以接受整數座標，但如果擔心型別問題，可以加上 <int> 轉型
+        cv2.line(image, (0, y_pixel), (image_width, y_pixel), (200, 200, 200), 1)
+    for x_pixel in range(0, image_width, grid_size):
+        cv2.line(image, (x_pixel, 0), (x_pixel, image_height), (200, 200, 200), 1)
 
     # 繪製障礙物（不可通行區域）
-    for grid_y in range(len(walkable_grid)):
-        for grid_x in range(len(walkable_grid[0])):
-            if not walkable_grid[grid_y][grid_x]:  # 若為障礙物
-                top_left = (grid_x * grid_size, grid_y * grid_size)
-                bottom_right = ((grid_x + 1) * grid_size, (grid_y + 1) * grid_size)
-                cv2.rectangle(image, top_left, bottom_right, (255, 255,0), -1)  # 紅色填充不可通行區域
+    for grid_y in range(num_rows):
+        for grid_x in range(num_cols):
+            if not walkable_mv[grid_y, grid_x]:  # 若為障礙物
+                top_left_x = grid_x * grid_size
+                top_left_y = grid_y * grid_size
+                bottom_right_x = (grid_x + 1) * grid_size
+                bottom_right_y = (grid_y + 1) * grid_size
+                cv2.rectangle(image, (top_left_x, top_left_y), (bottom_right_x, bottom_right_y), (255, 255,0), -1)  # 紅色填充不可通行區域
 
     # 繪製所有路徑
     for path in whole_path_batch_astar:
@@ -267,13 +272,13 @@ cdef cnp.ndarray[cnp.uint8_t, ndim=3] draw_and_get_paths(cnp.ndarray[cnp.uint8_t
     return image
 
 # 主函數
-cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=3] copyimage, int size, list obstacle_coordinate_changed_btbatch, str file_name, list whole_path_batch_astar, int step_size):
+cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=3] copyimage, int size, list obstacle_coordinate_changed_btbatch, str file_name, list whole_path_batch_astar, int step_size, cnp.ndarray[cnp.uint8_t, ndim=2] walkable_grid_np):
     cdef int scale_percent, width, height
     cdef tuple dim 
     cdef str path_save_directory
     cdef cnp.ndarray[cnp.uint8_t, ndim=3] image_with_paths
     # 繪製移動路徑                                                           
-    image_with_paths = draw_and_get_paths(copyimage, whole_path_batch_astar, obstacle_coordinate_changed_btbatch, batch_size, size)
+    image_with_paths = draw_and_get_paths(copyimage, whole_path_batch_astar, size, walkable_grid_np)
     scale_percent = 50  
     width = int(image_with_paths.shape[1] * scale_percent / 100)
     height = int(image_with_paths.shape[0] * scale_percent / 100)
@@ -311,6 +316,7 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
     cdef list light_targets, valid_indices, path
     cdef cnp.ndarray[cnp.float64_t, ndim=1] distances_to_light
     cdef tuple dim
+    cdef double fps, frame_duration, start_time, elapsed, sleep_time
 
     # 靜止的粒子座標從 all_particle_coor 的 target_numbers 索引開始
     static_particles_coords = all_particle_coor[target_numbers:]
@@ -333,6 +339,8 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
                 pass # 不填充空路徑，依賴後續繪製檢查 path 是否非空
 
     # 設置影片輸出區
+    fps = 30.0
+    frame_duration = 1.0 / fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # 請確認或修改這裡的輸出路徑
     cdef str outputpath = f"C:/Users/Vivo/odepcellarray_fromlab/cbs-rvo/movement_simulation_{file_name}_rvo版.mp4"
@@ -353,6 +361,7 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
 
     # 模擬循環，遍歷每個影格
     for step in range(max_path_length):
+        start_time = time.time()
         display_img = canvas.copy()
 
         # 繪製靜態元素 (可以保持原樣，或者如果數量巨大，考慮預先繪製)
@@ -442,10 +451,17 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
         cv2.imshow('Movement Simulation', resized_image)
         out.write(display_img) # 注意這裡仍然寫入全尺寸圖像
 
-        # 檢查用戶中斷
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # 等待最小時間避免程序卡死且能捕捉鍵盤事件
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             print("Simulation interrupted by user.")
             break
+
+        elapsed = time.time() - start_time
+        sleep_time = frame_duration - elapsed
+
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
     # 釋放影片寫入器並關閉視窗 (保持不變)
     out.release()

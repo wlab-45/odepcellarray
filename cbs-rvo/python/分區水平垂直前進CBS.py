@@ -101,7 +101,7 @@ def wholestep3_draw_array_picture(output_folder, Rp):
     length = int(length)
     width = int(width)
     
-    create_canvas_and_draw_circles(output_folder, Rp, length, width, size, file_i = 30)
+    # create_canvas_and_draw_circles(output_folder, Rp, length, width, size, file_i = 30)
     file_path=select_png_file()
     image=cv2.imread(file_path)
     file_name = os.path.basename(file_path)
@@ -298,7 +298,16 @@ def convert_to_grid_coordinates(image_width, image_height, obstacle_coordinates,
                 # 若障礙物到網格中心的距離小於網格一半加上障礙物半徑，設置為不可通行
                 if dx <= grid_size // 2 + obstacle_radius or dy <= grid_size // 2 + obstacle_radius:
                     walkable_grid[grid_y][grid_x] = False
+                
+    if image_width % grid_size != 0:
+        if grid_x == num_cols - 1:
+            walkable_grid[grid_y][grid_x] = False
+    if image_height % grid_size != 0:
+        if grid_y == num_rows - 1:
+            walkable_grid[grid_y][grid_x] = False
+            
     return walkable_grid
+
 '''
 # 網格轉step_size
 def interpolate_path(start, end, step_size):
@@ -484,12 +493,14 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
             else:
                 print(f"[警告] 第{k}個 whole_paths 在填充時為空。")
                 pass # 不填充空路徑，依賴後續繪製檢查 path 是否非空
-
+            
     # 設置影片輸出區
+    fps = 30.0
+    frame_duration = 1.0 / fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # 請確認或修改這裡的輸出路徑
     outputpath = f"C:/Users/Vivo/odepcellarray_fromlab/cbs-rvo/movement_simulation_{file_name}_rvo版.mp4"
-    out = cv2.VideoWriter(outputpath, fourcc, 30.0, (canvas.shape[1], canvas.shape[0]))
+    out = cv2.VideoWriter(outputpath, fourcc, fps, (canvas.shape[1], canvas.shape[0]))
 
     if not out.isOpened():
         print(f"Error: Could not open video writer for path {outputpath}")
@@ -506,6 +517,7 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
 
     # 模擬循環，遍歷每個影格
     for step in range(max_path_length):
+        start_time = time.time()
         display_img = canvas.copy()
 
         # 繪製靜態元素 (可以保持原樣，或者如果數量巨大，考慮預先繪製)
@@ -594,12 +606,19 @@ def simulate_movement(canvas, step_size, whole_paths, all_particle_coor, target_
 
         cv2.imshow('Movement Simulation', resized_image)
         out.write(display_img) # 注意這裡仍然寫入全尺寸圖像
-
-        # 檢查用戶中斷
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+ 
+        # 等待最小時間避免程序卡死且能捕捉鍵盤事件
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             print("Simulation interrupted by user.")
             break
 
+        elapsed = time.time() - start_time
+        sleep_time = frame_duration - elapsed
+
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+            
     # 釋放影片寫入器並關閉視窗 (保持不變)
     out.release()
     cv2.destroyAllWindows()

@@ -12,8 +12,7 @@ import math
 from collections import namedtuple, defaultdict
 #from cbs import cbs_planning
 from ORCA_RVO2 import orca_planning
-from functions_cython import wholestep5_draw_light_image, whole_step_6_draw_path, assignment, whole_step7_simulate_moving, collision_or_not
-
+from functions_cython import wholestep5_draw_light_image, whole_step_6_draw_path, assignment, whole_step7_simulate_moving, collision_or_not, convert_to_grid_coordinates
 
 def create_canvas_and_draw_circles(output_folder, radius, length, width, size, file_i = 30):
     for i in range(file_i):
@@ -117,22 +116,19 @@ def wholestep3_draw_array_picture(output_folder, Rp):
     print("array success")
     return size, target_numbers, arrayimage, file_name, length, width
 
-
-
-def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, obstacle_radius=15):
+def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, walkablw_grid_np, obstacle_radius=20):
     start_time = time.time()
     grid_size = size
     # ORCA規劃並以直線距離作為參考路徑優先 (最快，適用於障礙物少的情況)
-    final_paths, ORCA_STAIGHT_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius,  mode = "straight_path")
+    final_paths, ORCA_STAIGHT_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, walkablw_grid_np,  mode = 'a_star') #"straight_path")
     if ORCA_STAIGHT_SUCCESS == False:
         print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
         # A*規劃
-        final_paths, Astar_SUCCESS = (matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius)
+        final_paths, Astar_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, walkablw_grid, mode = "a_star")
         
         if Astar_SUCCESS == False:
-            print("A*規劃失敗，無法找到路徑")
+            raise ValueError("A*規劃失敗，無法找到路徑")
             return None
-    
     
     if final_paths is None:
         print("無法找到路徑，請檢查參數或障礙物配置。")
@@ -174,8 +170,9 @@ if __name__ == '__main__':
         obstacle_coordinate_changed_btbatch.extend([destination for batch in before_start for _, destination in batch])
         obstacle_coordinate_changed_btbatch.extend([start_point for batch in after_start for start_point, _ in batch])
 
-        whole_path_batch_astar = path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, obstacle_radius= 15)
-        whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_changed_btbatch, file_name, whole_path_batch_astar, step_size)
+        walkablw_grid_np = convert_to_grid_coordinates(image_width,image_height, obstacle_coordinate_changed_btbatch, size, obstacle_radius=20)   #改用numpy且值為0/1
+        whole_path_batch_astar= path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, size, image_width, image_height, step_size, Rl, walkablw_grid_np, obstacle_radius= 15)
+        whole_step_6_draw_path(batch_size, copyimage, size, obstacle_coordinate_changed_btbatch, file_name, whole_path_batch_astar, step_size, walkablw_grid_np)
         
 
         max_path_length_in_batch = max(len(path) for path in whole_path_batch_astar)  # 找最長的路徑
@@ -184,7 +181,7 @@ if __name__ == '__main__':
             while 0 < len(whole_path_batch_astar[k]) < max_path_length_in_batch:
                 whole_path_batch_astar[k].append(whole_path_batch_astar[k][-1])  # 最後一點填充(表一直在陣列終點)
           
-        delay_factors = [4, 3.5 , 3, 2.5, 2, 1.5, 1]
+        delay_factors = [3.5 , 3, 2.5, 2, 1.5, 1]
         collision = True
         for delay_factor in delay_factors:
             delay_batch_path = copy.deepcopy(whole_path_batch_astar)
