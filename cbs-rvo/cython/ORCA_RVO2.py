@@ -292,8 +292,7 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
         start_pixel_positions_np = np.array(START_POSITIONS, dtype=np.float64)
         target_pixel_positions_np = np.array(GOAL_POSITIONS, dtype=np.float64) 
         whole_paths = get_all_astar_path(start_pixel_positions_np, target_pixel_positions_np, walkable_grid_np, grid_size)
-        #whole_paths = get_all_astar_path(START_POSITIONS, GOAL_POSITIONS, walkable_grid, grid_size)  #python版本
-        image = np.zeros((SCENE_HEIGHT, SCENE_WIDTH, 3), dtype=np.uint8)
+        '''image = np.zeros((SCENE_HEIGHT, SCENE_WIDTH, 3), dtype=np.uint8)
             
         # 繪製網格
         for y in range(0, SCENE_HEIGHT, grid_size):
@@ -318,7 +317,7 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
         # 顯示影像
         cv2.imshow("A* Path", resized_image_with_path)
         cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        cv2.destroyAllWindows()'''
         agents_path_indices = [1] * NUM_CIRCLES
         
     agents_reached_final_goal = [False] * NUM_CIRCLES # 追蹤是否到達最終目標
@@ -332,31 +331,15 @@ def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX
             final_goal = np.array(GOAL_POSITIONS[i])
             dist_to_goal = np.linalg.norm(final_goal - pos) # 計算代理當前位置到最終目標的距離
             path = whole_paths[i]
-            if mode == "straight_path"or "a_star":
-                progress = step * TIME_STEP * MAX_SPEED * 1.5 / np.linalg.norm(np.array(path[-1]) - np.array(path[0]))  
-                # "step * TIME_STEP * MAX_SPEED"這部分估計了在 step 個時間步內，如果代理一直以最大速度移動，它所能行駛的最大距離。
-                # 1.2: 這是一個額外的係數，用於稍微加快進度的估計，可能為了讓代理更快地沿著參考路徑移動
-                # progress: 通過將估計的已行駛距離除以總路徑長度，得到一個介於 0 和可能大於 1 的進度值，表示代理在參考路徑上的位置
-                idx = min(int(progress * len(path)), len(path) - 1) # 這行程式碼根據計算出的 progress 來確定代理在參考路徑上應該朝向的目標點的索引
-                target = np.array(path[idx]) # 最為目標參考點
-                direction = target - pos # 計算當前代理位置到目標參考點的方向向量
-                dist = np.linalg.norm(direction) + 1e-6 # 計算代理當前位置到目標點的距離
-            elif mode == "a":
-                current_path_point_index = agents_path_indices[i]
-                if current_path_point_index >= len(path) - 1:
-                    target = final_goal
-                else:
-                    target_grid_x  = path[current_path_point_index][0]
-                    target_grid_y  = path[current_path_point_index][1]
-                    target_x_pixel = target_grid_x * grid_size + grid_size // 2
-                    target_y_pixel = target_grid_y * grid_size + grid_size // 2                    
-                    target = np.array((target_x_pixel, target_y_pixel))
-                    distance_to_current_target_point = np.linalg.norm(target - pos)
-                    if distance_to_current_target_point < 5:
-                        # 如果足夠接近當前路徑點，將索引加一，朝下一個點前進
-                        agents_path_indices[i] += 1
-                    direction = target - pos # 計算當前代理位置到目標參考點的方向向量
-                    dist = np.linalg.norm(direction) + 1e-6 # 計算代理當前位置到目標點的距離                  
+            progress = step * TIME_STEP * MAX_SPEED * 1.5 / np.linalg.norm(np.array(path[-1]) - np.array(path[0]))  
+            # "step * TIME_STEP * MAX_SPEED"這部分估計了在 step 個時間步內，如果代理一直以最大速度移動，它所能行駛的最大距離。
+            # 1.2: 這是一個額外的係數，用於稍微加快進度的估計，可能為了讓代理更快地沿著參考路徑移動
+            # progress: 通過將估計的已行駛距離除以總路徑長度，得到一個介於 0 和可能大於 1 的進度值，表示代理在參考路徑上的位置
+            idx = min(int(progress * len(path)), len(path) - 1) # 這行程式碼根據計算出的 progress 來確定代理在參考路徑上應該朝向的目標點的索引
+            target = np.array(path[idx]) # 最為目標參考點
+            direction = target - pos # 計算當前代理位置到目標參考點的方向向量
+            dist = np.linalg.norm(direction) + 1e-6 # 計算代理當前位置到目標點的距離
+              
             arrival_threshold = 80
             arrival_threshold_slowdown = 20 # 更大的減速區域
 
@@ -477,248 +460,3 @@ def orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_bt
     return final_paths, SUCCESS
     
     
-    
-# 全用NUMPY
-'''    
-def check_midpoint_and_obstacle(mid_point, OBSTACLE_CENTERS, grid_size):
-    new_x, mid_points_y = mid_point
-    for j, obs in enumerate(OBSTACLE_CENTERS):
-        obs_x, obs_y = obs[0], obs[1]
-        if abs(obs_x - new_x) < grid_size and abs(obs_y - mid_points_y) < grid_size:
-            print(f"Obstacle {j} overlaps with mid-point {mid_point}.")
-            return obs
-    return None
-
-def generate_mid_points_to_goal(OBSTACLE_CENTERS, REAL_GOAL_POSITIONS, grid_size):
-    y_of_goal = REAL_GOAL_POSITIONS[0][1]  # 假設所有目標的 y 值相同
-    mid_points = [None for _ in range(len(REAL_GOAL_POSITIONS))]
-    max_iterations = 3
-
-    for i in range(len(REAL_GOAL_POSITIONS)):
-        mid_point = [30 + i * 80, y_of_goal + grid_size]  # 用 list 方便修改
-        iterations = 0
-        while iterations < max_iterations:
-            obs = check_midpoint_and_obstacle(tuple(mid_point), OBSTACLE_CENTERS, grid_size)
-            if obs is None:
-                break
-            else:
-                if iterations == 0:
-                    mid_point[1] = mid_point[1] - grid_size
-                else:
-                    mid_point = list(REAL_GOAL_POSITIONS[i])
-                iterations += 1
-                continue
-            iterations += 1
-        mid_points[i] = tuple(mid_point)
-    return np.array(mid_points)
-
-def straight_path(current_point, target_center, step_size):
-    current_point = np.array(current_point, dtype=np.float64)
-    target_center = np.array(target_center, dtype=np.float64)
-    dx = target_center[0] - current_point[0]
-    dy = target_center[1] - current_point[1]
-    all_length = math.hypot(dx, dy)
-
-    if all_length == 0:
-        return np.array([current_point])
-
-    step_count = int(all_length / step_size)
-    if step_count == 0:
-        return np.array([current_point, target_center])
-
-    step_x = dx / step_count
-    step_y = dy / step_count
-
-    path = [current_point]
-    for step_idx in range(1, step_count + 1):
-        next_point = current_point + np.array([step_x * step_idx, step_y * step_idx])
-        path.append(next_point)
-    if not np.allclose(path[-1], target_center):
-        path.append(target_center)
-    return np.array(path)
-
-def complete_path(all_agent_paths, REAL_GOAL_POSITIONS, OBSTACLE_CENTERS,obstacle_radius):
-    
-    # 檢查到實際終點的路上是否有障礙物
-    def check_if_obstacles(OBSTACLE_CENTERS, left_upper_point, right_lower_point, obstacle_radius=15):
-        # OBSTACLE_CENTERS is a numpy array of shape (N, 2)
-        obs_x = OBSTACLE_CENTERS[:, 0]
-        obs_y = OBSTACLE_CENTERS[:, 1]
-        x_cond = (obs_x >= 0) & (obs_x <= right_lower_point[0] + obstacle_radius)
-        y_cond = (obs_y >= left_upper_point[1] - obstacle_radius) & (obs_y <= right_lower_point[1] + obstacle_radius)
-        if np.any(x_cond & y_cond):
-            return True
-        return False
-
-    if check_if_obstacles(OBSTACLE_CENTERS, all_agent_paths[0][-1], all_agent_paths[-1][-1], obstacle_radius)== True:
-        print("Obstacle exists in the area.")
-        return all_agent_paths
-    else:        
-        for i, path in enumerate(all_agent_paths): # 由左至右
-            if len(path) > 0:
-                last_point = np.array(path[-1], dtype=np.float64) # 最後一個點
-                real_goal = REAL_GOAL_POSITIONS[i] # 由左至右
-                path2_np = straight_path(last_point, real_goal, step_size=3)
-                
-                if path2_np is not None:
-                    # 將 NumPy 陣列轉換為包含元組的列表
-                    # list(map(tuple, path2_np)) 是一個簡潔的方法
-                    path2_tuples = list(map(tuple, path2_np))
-
-                    # 使用 extend 方法將元組追加到原路徑列表中，保持結構一致
-                    all_agent_paths[i].extend(path2_tuples)
-            else: 
-                print(f"Agent {i} has no path.")
-                raise ValueError("Agent{i}'s path is empty.")            
-    return all_agent_paths
-
-def main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size, mode):
-    all_agent_paths = [[] for _ in range(NUM_CIRCLES)]
-    # 初始化 RVO2 模擬器
-    sim = rvo2.PyRVOSimulator(TIME_STEP, NEIGHBOR_DIST, 5, TIME_HORIZON, 3, CIRCLE_RADIUS, MAX_SPEED) # 5: 一個代理在避碰計算時最多考慮的鄰居數量, timeHorizon: 代理間避碰的時間視界, timeHorizonObst (腳本中為 2): 代理與靜態障礙物避碰的時間視界
-    SUCCESS = True
-    
-    # 添加光圈
-    agents = []
-    for pos in START_POSITIONS:   # 由左至右
-        agent_id = sim.addAgent(tuple(pos))
-        agents.append(agent_id)
-    
-    # 添加障礙物
-    for center in OBSTACLE_CENTERS:
-        num_points = 16
-        vertices = []
-        for i in range(num_points):
-            angle = 2 * np.pi * i / num_points
-            x = center[0] + OBSTACLE_RADIUS * np.cos(angle)
-            y = center[1] + OBSTACLE_RADIUS * np.sin(angle)
-            vertices.append((x, y))
-        vertices.append(vertices[0])
-        sim.addObstacle(vertices)
-    
-    # 將邊界全部設置為靜態障礙物 (不可超出邊界)
-    # 左邊界
-    sim.addObstacle([(0, 0), (0, SCENE_HEIGHT)])
-    # 下邊界
-    sim.addObstacle([(0, SCENE_HEIGHT), (SCENE_WIDTH, SCENE_HEIGHT)])
-    # 右邊界
-    sim.addObstacle([(SCENE_WIDTH, SCENE_HEIGHT), (SCENE_WIDTH, 0)])
-    # 上邊界
-    sim.addObstacle([(SCENE_WIDTH, 0), (0, 0)])
-    sim.processObstacles()
-    whole_paths = []
-    if mode == "straight_path":
-        for i, agent in enumerate(agents):
-            start = START_POSITIONS[i] #numpy
-            goal = GOAL_POSITIONS[i] #numpy
-            pixel_path = straight_path(start, goal, step_size=3)
-            whole_paths.append(pixel_path)  # list of arrays
-    elif mode == "a_star":
-        pass
-    
-    
-    agents_reached_final_goal = [False] * NUM_CIRCLES # 追蹤是否到達最終目標
-    step = 0
-    
-    precise_arrival_threshold = 3
-    
-    # 模擬循環
-    while any(np.linalg.norm(np.array(sim.getAgentPosition(agents[i])) - GOAL_POSITIONS[i]) >= precise_arrival_threshold for i in range(NUM_CIRCLES)) and step < 2000:
-        for i, agent in enumerate(agents):
-            pos = np.array(sim.getAgentPosition(agent))
-            final_goal = GOAL_POSITIONS[i]
-            dist_to_goal = np.linalg.norm(final_goal - pos) # 計算代理當前位置到最終目標的距離
-            path = whole_paths[i]
-
-            progress = step * TIME_STEP * MAX_SPEED * 1.5 / np.linalg.norm(path[-1] - path[0])+ 1e-6 # 計算進度  
-            
-            # "step * TIME_STEP * MAX_SPEED"這部分估計了在 step 個時間步內，如果代理一直以最大速度移動，它所能行駛的最大距離。
-            # 1.2: 這是一個額外的係數，用於稍微加快進度的估計，可能為了讓代理更快地沿著參考路徑移動
-            # progress: 通過將估計的已行駛距離除以總路徑長度，得到一個介於 0 和可能大於 1 的進度值，表示代理在參考路徑上的位置
-            idx = min(int(progress * path.shape[0]), path.shape[0] - 1) # 這行程式碼根據計算出的 progress 來確定代理在參考路徑上應該朝向的目標點的索引
-            target = path[idx] # 最為目標參考點
-            direction = target - pos # 計算當前代理位置到目標參考點的方向向量
-            dist = np.linalg.norm(direction) + 1e-6 # 計算代理當前位置到目標點的距離
-                   
-            arrival_threshold = 80
-            arrival_threshold_slowdown = 20 # 更大的減速區域
-
-            #if (pos[0]// grid_size, pos[1]// grid_size) == goal_grid:
-            if dist_to_goal < arrival_threshold:
-                sim.setAgentPrefVelocity(agent, (0, 0)) 
-                agents_reached_final_goal[i] = True
-            elif dist_to_goal < arrival_threshold_slowdown:
-                # 在減速區域內，根據距離調整速度
-                slowdown_factor = max(0.1, dist_to_goal / arrival_threshold_slowdown)
-                desired_speed = min(MAX_SPEED, dist / TIME_STEP) * slowdown_factor
-                velocity = direction/dist  * desired_speed
-                sim.setAgentPrefVelocity(agent, tuple(velocity))
-            else:
-                velocity = direction/dist * min(MAX_SPEED, dist / TIME_STEP) #  計算期望的速度大小。這個速度是代理希望朝向目標移動的速度，但不會超過其最大速度 (MAX_SPEED)。同時，它也考慮了代理在一個時間步內能夠行駛的最大距離 (dist / TIME_STEP)，以避免產生過大的速度。
-                sim.setAgentPrefVelocity(agent, tuple(velocity))
-        step += 1
-        sim.doStep()
-
-        # --- 在 sim.doStep() 之後，強制將已到達終點的粒子位置設定回精確終點 ---
-        for i, agent_id in enumerate(agents):
-            if agents_reached_final_goal[i] == True:
-                rvo2_stop_pos = np.array(sim.getAgentPosition(agent_id)) # 設定在進入到終點網格實踐暫停rvo2規劃，改用硬編碼(其他agent仍會根據手動編碼結果繞過)
-                assert np.linalg.norm(rvo2_stop_pos - GOAL_POSITIONS[i]) <= 130 , f"Agent {i} reached goal but position is not close to goal: {rvo2_stop_pos} vs {GOAL_POSITIONS[i]}" #int(grid_size//2 * 1.5)+1
-                late_path = straight_path(rvo2_stop_pos, GOAL_POSITIONS[i], step_size = 2)
-                if late_path.shape[0] > 1:
-                    sim.setAgentPosition(agent_id, tuple(late_path[1]))
-                    # else: 如果 late_path 是 None 或只有一個點，表示代理已經非常接近或就在中間目標點了，不做額外移動
-                else:
-                    sim.setAgentPosition(agent_id, tuple(GOAL_POSITIONS[i]))
-                    
-                    
-        # 在每次 sim.doStep() 之後，記錄每個代理的當前位置
-        for i, agent_id in enumerate(agents):
-            current_pos = sim.getAgentPosition(agent_id)
-            all_agent_paths[i].append(current_pos)
-        # 最大次數限制
-        if step >= 2000: 
-            print("Simulation reached maximum steps without all agents reaching the goal.")
-            SUCCESS = False
-            break
-        
-    # 確定所有代理都抵達終點  
-    for i, path_list in enumerate(all_agent_paths):
-        if path_list[-1] != tuple(GOAL_POSITIONS[i]):
-           all_agent_paths[i].append(tuple(GOAL_POSITIONS[i])) 
-    return all_agent_paths, SUCCESS
-
-def orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, mode):
-    assert mode in ["straight_path", "a_star"], f"Invalid mode: {mode}. Choose 'straight_path' or 'a_star'." 
-    # 場景參數
-    SCENE_WIDTH = image_width  # 像素
-    SCENE_HEIGHT = image_height
-    NUM_CIRCLES = len(matched_target_and_array_batch)  # 光圈數量
-    CIRCLE_RADIUS = Rl+10  # 光圈半徑（直徑 50 像素）
-    OBSTACLE_RADIUS = 25 # obstacle_radius  # 障礙物半徑（直徑 30 像素）
-    NEIGHBOR_DIST = 80 #(CIRCLE_RADIUS + 10) * 2  #80  # RVO2 鄰居距離 代理檢測其他代理的最大距離
-    TIME_HORIZON = 1.5 # 代理人對其他代理人做出避碰行為時，考慮的未來時間範圍（秒數）
-    TIME_STEP = 1 / 30  # 每幀 1/30 秒（30fps） 每個模擬步的時間長度
-    MAX_SPEED = 1/(TIME_STEP) * step_size  #90  # 像素/秒  
-
-    # 靜態障礙物 
-    OBSTACLE_CENTERS = np.array(obstacle_coordinate_changed_btbatch, dtype=np.float64) # (x, y) 坐標
-    START_POSITIONS = np.array([start for start, _ in matched_target_and_array_batch], dtype=np.float64)
-    REAL_GOAL_POSITIONS = np.array([goal for _, goal in matched_target_and_array_batch], dtype=np.float64)
-    GOAL_POSITIONS = generate_mid_points_to_goal(OBSTACLE_CENTERS, REAL_GOAL_POSITIONS, grid_size) #得到numpy array
-
-    # start orca planning
-    start_time = time.time()
-    all_agent_paths, SUCCESS = main(NUM_CIRCLES, TIME_STEP, NEIGHBOR_DIST, TIME_HORIZON, CIRCLE_RADIUS, MAX_SPEED, START_POSITIONS, OBSTACLE_CENTERS, OBSTACLE_RADIUS, SCENE_HEIGHT, SCENE_WIDTH, GOAL_POSITIONS, grid_size, mode)
-    final_paths = complete_path(all_agent_paths, REAL_GOAL_POSITIONS, OBSTACLE_CENTERS, obstacle_radius)
-    print(f"total time = {time.time()- start_time}")
-    # 四捨五入 final_paths
-    rounded_final_paths = []
-    for path in final_paths:
-        rounded_path = [(int(round(x)), int(round(y))) for x, y in path]
-        rounded_final_paths.append(rounded_path)
-
-    final_paths = rounded_final_paths
-    # for path in final_paths:
-    #     print(f"Final paths:{final_paths}")
-    return final_paths, SUCCESS '''

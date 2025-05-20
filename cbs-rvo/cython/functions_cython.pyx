@@ -28,62 +28,19 @@ cdef cnp.ndarray[cnp.uint8_t, ndim=3] generate_array(cnp.ndarray[cnp.uint8_t, nd
     return image 
 
 ############################## step5
-cdef list read_coordinates_from_file(str file_path):
-    cdef list coordinates = []
-    cdef str line
-    cdef int x, y
 
-    with open(file_path, 'r') as file:
-        for line in file:
-            line = line.strip()
-            if line:
-                line = line.strip("()")
-                x_str, y_str = line.split(',')
-                x = int(x_str)
-                y = int(y_str)
-                coordinates.append((x, y))
-
-    return coordinates
-
-cdef tuple form_sort_list(cnp.ndarray[cnp.uint8_t, ndim=3] arrayimage, str coordinates_file_path, int size, int target_numbers, str file_name, int Rl):
-
-    all_coordinates = read_coordinates_from_file(coordinates_file_path)
-
-    all_sorted_coordinates = sorted(all_coordinates, key=get_distance)
-
-
-    cdef list obsticle_coordinates = []
-    cdef cnp.ndarray[cnp.uint8_t, ndim=3] obsticle_image = arrayimage.copy()
-    cdef int radius = Rl+10
-    cdef int x, y
-
-    for _ in range(5):
-        while True:
-            x = np.random.randint(size * int(math.sqrt(target_numbers)), 1814)
-            y = np.random.randint(size * int(math.sqrt(target_numbers)), 1220)
-            if all(sqrt(<double>(x - cx)**2 + <double>(y - cy)**2)  > 4 * radius for cx, cy in all_coordinates):
-                cv2.circle(obsticle_image, (x, y), radius, (255, 0, 0), -1)
-                obsticle_coordinates.append((x, y))
-                break
-
-    save_arrayimage_directory = "C:/Users/Vivo/CGU/odep_cellarray/Cell_Manipulation_Simulation/virtual_test_image/array_image"
-    array_image_path = os.path.join(save_arrayimage_directory, f'arrayimage_{file_name}')
-    cv2.imwrite(array_image_path, obsticle_image)
-
-    return all_sorted_coordinates, obsticle_image, obsticle_coordinates
-
-cdef list picking_target(list all_coordinate,int size,int columns,int rows):
+cdef list picking_target(list all_sorted_coordinates,int columns,int rows):
     cdef list target_coordinate = []
     cdef int target_numbers = columns * rows
 
-    sorted_available_coordinate = sorted(all_coordinate, key=get_distance)  # 依距離排序
+    sorted_available_coordinate = sorted(all_sorted_coordinates, key=get_distance)  # 依距離排序
 
     # 確保目標數量足夠
     if len(sorted_available_coordinate) >= target_numbers:
         target_coordinate = sorted_available_coordinate[:target_numbers]
     else:
         print(f"可移動粒子數量 {len(sorted_available_coordinate)} 不足，需要至少 {target_numbers} 個")
-
+        target_coordinate = sorted_available_coordinate
     return target_coordinate
 
 cdef cnp.ndarray[cnp.uint8_t, ndim=3] draw_light_image(cnp.ndarray[cnp.uint8_t, ndim=3] arrayimage, list target_coordinate):
@@ -94,40 +51,36 @@ cdef cnp.ndarray[cnp.uint8_t, ndim=3] draw_light_image(cnp.ndarray[cnp.uint8_t, 
         cv2.circle(light_image, target_coordinate[i] , int(2*7+5),(250,250,255), 10) 
     return light_image    
         
-cpdef tuple wholestep5_draw_light_image(cnp.ndarray[cnp.uint8_t, ndim=3] arrayimage, int target_numbers, int size, str file_name, int columns, int rows, int Rl):
+cpdef tuple wholestep5_draw_light_image(cnp.ndarray[cnp.uint8_t, ndim=3] arrayimage, int target_numbers, int size, str file_name, int columns, int rows, int Rl, list all_coordinate):
     # generate 4 list
-    cdef list all_coordinate=[]
+    cdef list all_sorted_coordinates
     cdef list target_coordinate=[]
-    cdef list obstacle_coordinate=[]
     cdef cnp.ndarray[cnp.uint8_t, ndim=3] light_image
     ##set coordinates file path
-    # 隱藏主視窗
-    cdef str txt_folder = 'C:/Users/Vivo/CGU/odep_cellarray/Cell_Manipulation_Simulation/virtual_particle_points_txt'
-    file_name_without_ext = os.path.splitext(file_name)[0]
-    coordinates_file_path = os.path.join(txt_folder, f'{file_name_without_ext}.txt')
+
     #generating all_cooridinate
-    all_coordinate, obsticle_image, obstacle_coordinate = form_sort_list(arrayimage, coordinates_file_path, size, target_numbers, file_name, Rl)
-    print(f'length of all_coordinate list={len(all_coordinate)}')
+    all_sorted_coordinates = sorted(all_coordinate, key=get_distance)
+    print(f'length of all_coordinate list={len(all_sorted_coordinates)}')
     
     #picking target
-    target_coordinate =picking_target(all_coordinate, size, columns, rows)
+    target_coordinate = picking_target(all_sorted_coordinates, columns, rows)
     print(f'length of target_coordinate list={len(target_coordinate)}')
     
     #驗證用
-    light_image = draw_light_image(obsticle_image,target_coordinate)
+    light_image = draw_light_image(arrayimage, target_coordinate)
     cdef int scale_percent = 70  # 縮放比例
     cdef int width = int(light_image.shape[1] * scale_percent / 100)
     cdef int height = int(light_image.shape[0] * scale_percent / 100)
     cdef tuple dim = (width, height)
     
-    resized_light_image= cv2.resize(light_image, dim, interpolation=cv2.INTER_AREA)
-    cv2.imshow('step5: processed image', resized_light_image )
+    #resized_light_image= cv2.resize(light_image, dim, interpolation=cv2.INTER_AREA)
+    #cv2.imshow('step5: processed image', resized_light_image )
     light_image_directory="C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\lightimg_with_particle"
     light_image_path = os.path.join(light_image_directory, f'light_image_{file_name}')
     cv2.imwrite(light_image_path, light_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    return target_coordinate, obstacle_coordinate, light_image, all_coordinate
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
+    return target_coordinate, light_image, all_sorted_coordinates
 
 
 ############################## step6
@@ -277,6 +230,7 @@ cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=
     cdef tuple dim 
     cdef str path_save_directory
     cdef cnp.ndarray[cnp.uint8_t, ndim=3] image_with_paths
+
     # 繪製移動路徑                                                           
     image_with_paths = draw_and_get_paths(copyimage, whole_path_batch_astar, size, walkable_grid_np)
     scale_percent = 50  
@@ -286,9 +240,9 @@ cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=
 
     resized_image_with_path= cv2.resize(image_with_paths, dim, interpolation=cv2.INTER_AREA)
     # 顯示影像
-    cv2.imshow("Result of path", resized_image_with_path)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    #cv2.imshow("Result of path", resized_image_with_path)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
     path_save_directory = "C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\path_image"
     path_image_path = os.path.join(path_save_directory, f'path_{file_name}')
     cv2.imwrite(path_image_path, image_with_paths)
@@ -296,17 +250,6 @@ cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=
 
 
 ############################## step7
-'''def find_unit_vector(light_coor, particle_coor):
-    # 計算分量差值
-    dx = light_coor[0] - particle_coor[0]
-    dy = light_coor[1] - particle_coor[1]
-    # 檢查dx和dy是否都為0
-    if dx == 0 and dy == 0:
-        return (0, 0)
-    # 計算單位向量
-    distance_two_points = math.sqrt(dx**2 + dy**2)
-    unit_vector = (dx/distance_two_points, dy/distance_two_points)
-    return unit_vector'''
 
 # 模擬移動 (修改版 - 光圈引導粒子拉動效果)
 cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_size, list whole_paths, list all_particle_coor, int target_numbers, int Rl, int Rp, list obstacle_coordinate, str file_name, list matched_target_and_array):  
@@ -342,7 +285,6 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
     fps = 30.0
     frame_duration = 1.0 / fps
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    # 請確認或修改這裡的輸出路徑
     cdef str outputpath = f"C:/Users/Vivo/odepcellarray_fromlab/cbs-rvo/movement_simulation_{file_name}_rvo版.mp4"
     out = cv2.VideoWriter(outputpath, fourcc, 30.0, (canvas.shape[1], canvas.shape[0]))
 
@@ -439,7 +381,7 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
             # 繪製光圈
             cv2.circle(display_img, (int(round(light_coor[0])), int(round(light_coor[1]))), radius=Rl, color=(250, 250, 250), thickness=10)
             # 繪製粒子
-            cv2.circle(display_img, (int(round(particle_coor[0])), int(round(particle_coor[1]))), Rp, (0, 0, 250), -1)
+            #cv2.circle(display_img, (int(round(particle_coor[0])), int(round(particle_coor[1]))), Rp, (0, 0, 250), -1)
 
 
         scale_percent = 50
@@ -471,10 +413,10 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
 
 # step7 主函數    
 cpdef void whole_step7_simulate_moving(int size, int target_numbers, list whole_paths, list all_sorted_coordinate, int step_size, int Rl, int Rp, list obstacle_coordinate, str file_name, int columns, int rows, list matched_target_and_array):
-    cdef cnp.ndarray[cnp.uint8_t, ndim=3] canvas
+    cdef cnp.ndarray[cnp.uint8_t, ndim=3] canvas, ar_img
     canvas = np.zeros((1220, 1814, 3), dtype=np.uint8)
-    generate_array(canvas, size, columns, rows)
-    simulate_movement(canvas, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
+    ar_img = generate_array(canvas, size, columns, rows)
+    simulate_movement(ar_img, step_size, whole_paths, all_sorted_coordinate, target_numbers, Rl, Rp, obstacle_coordinate, file_name, matched_target_and_array)
 
 #檢查現有路徑是否會有碰撞發生
 cpdef bint collision_or_not(list whole_path, int Rl):
