@@ -20,7 +20,7 @@ def rename_png_files(directory):
 
         if len(parts) > 1:  # 確保有足夠的部分 
             file_date = parts[0]  # 假設第一部分是日期 
-            new_filename = f"{file_date}_{File_number:03d}.png"  # 使用四位數格式化序號 
+            new_filename = f"{file_date}_{File_number:03d}.jpg"  # 使用四位數格式化序號 
             old_file = os.path.join(directory, filename)  # 獲取舊文件的完整路徑 
             new_file = os.path.join(directory, new_filename)  # 獲取新文件的完整路徑 
 
