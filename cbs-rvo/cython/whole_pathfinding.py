@@ -125,7 +125,7 @@ def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_b
     if ORCA_STAIGHT_SUCCESS == False:
         print("ORCA規劃失敗，嘗試使用優先time-a*規劃")
         # A*規劃
-        final_paths, Astar_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, walkablw_grid, mode = "a_star")
+        final_paths, Astar_SUCCESS = orca_planning(matched_target_and_array_batch, obstacle_coordinate_changed_btbatch, grid_size, image_width, image_height, step_size, Rl, obstacle_radius, walkablw_grid_np, mode = "a_star")
         
         if Astar_SUCCESS == False:
             raise ValueError("A*規劃失敗，無法找到路徑")
@@ -138,6 +138,17 @@ def path_for_batch(matched_target_and_array_batch, obstacle_coordinate_changed_b
     print(f"\n⏱️ 總耗時: {end_time - start_time:.2f} 秒")
     return final_paths
 
+def generate_obstacle_coordinates(obstacle_radius, all_coordinate):
+    # 將障礙物座標轉換為圓形
+    obstacle_coordinate = []
+    for i in range(5):
+        while True:
+            x, y = np.random.randint(60*int(math.sqrt(64)), 1814), np.random.randint(60*int(math.sqrt(64)), 1220)
+            if all(math.sqrt((x - cx)**2 + (y - cy)**2) > 4 * 20 for cx, cy in all_coordinate):
+                obstacle_coordinate.append((x, y))
+                break
+    return obstacle_coordinate
+
 # version2
 if __name__ == '__main__':
     obstacle_coordinate = []
@@ -145,12 +156,17 @@ if __name__ == '__main__':
     Rl, Rp = 15, 9  # 光圈半徑和粒子半徑
     output_folder = 'C:\\Users\\Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\raw_image'
     folder = 'C:\\Users\\Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\raw_image'
-    image_width = 1814
+    image_width = 1820
     image_height = 1220
     step_size = 3
     
-    all_coordinate, image, obstacle_coordinate = simulate_yolo()
+    all_coordinate, image, obstacle_coordinate = simulate_yolo()  #此為之前用opecv測試模擬yolo使用，實際使用需註解
+    obstacle_coordinate = generate_obstacle_coordinates(20, all_coordinate)
+    # yolo輸出的粒子座標all_coordinate， 障礙物座標obstacle_coordinate(如果沒有的話，要模擬測試可以啟用generate_obstacle_coordinates)
+    # cython已經把cv2.imwrite跟cv2.imshow註解， 只有影片會被顯示，其餘不會
     
+    
+    '''其餘邏輯不需更改'''   
     size, target_numbers, arrayimage, file_name, columns, rows = wholestep3_draw_array_picture(image, Rp)
     start_time = time.time()
     target_coordinate, light_image, all_sorted_coordinate = wholestep5_draw_light_image(arrayimage, target_numbers, size, file_name, columns, rows, Rl, all_coordinate)

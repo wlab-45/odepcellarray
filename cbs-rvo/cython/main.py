@@ -1,6 +1,6 @@
 import multiprocessing
 import time
-import random # 示例需要
+from collections import deque
 
 # --- 多程序規劃 ---
 """
@@ -51,7 +51,22 @@ def perception_process_task(output_queue, termination_event, config):
             break
     print("Process Perception exiting.")
 
-
+def update_particle_states_and_history(particle_list_with_ids, particle_states):
+    for pos, id in particle_list_with_ids:
+        if id not in particle_states:
+            history_length = config['history_length'] # 設定歷史要記錄的長度，其餘覆蓋或丟棄
+            # 新粒子，初始化狀態
+            particle_states[id] = {
+                'history': deque(maxlen=history_length),  # 記錄最近10個位置
+                'is_target': False,
+                'is_stuck': False,
+                'current_pos': pos,
+                
+            }
+        # 更新粒子位置歷史
+        particle_states[id]['history'].append(pos)
+    return particle_states
+   
 def decision_process_task(perception_input_queue, stop_signal_output_queue, planning_planning_info_output_queue, termination_event, config):
     """
     決策進程任務：接收感知結果和執行狀態，判斷狀態，觸發規劃。
@@ -59,12 +74,12 @@ def decision_process_task(perception_input_queue, stop_signal_output_queue, plan
     """
     print(f"Process Decision started with PID: {multiprocessing.current_process().pid}")
     
-    # 初始化狀態管理，粒子歷史等
-    particle_states = {} # {id: {'history': deque, 'is_target': bool, 'is_stuck': bool, 'pos' : (x, y)}}
+    # 創建歷史字典
+    particle_states = {} # {id: {'history': deque, 'is_target': bool, 'is_stuck': bool, 'current_pos': (x, y)}}    
     particle_obstacles = [] # 被決策為"脫落"的粒子，會被加入到障礙物列表中
     replan_needed = False
     planning_request_counter = 0 # 用於標識規劃請求的序列號或 ID，幫助下游判斷哪個規劃是優先的
-    decision_loop_period = 1.0 / config['decision_frequency'] # 每收到5次感知結果檢查一次 (Hz)
+    decision_loop_period = 1.0 / config['decision_frequency'] # 基於時間的檢查頻率 (Hz)
     is_stuck_simulated = False  # 設置為當已經發出重新規劃訊號後，直到該訊號被接收且開始投影執行前都不再檢查 (否則會一直重新規劃) #true:不用檢查, false:要檢查
     
     iteration_count = 0 # 用於計算循環次數
@@ -80,63 +95,63 @@ def decision_process_task(perception_input_queue, stop_signal_output_queue, plan
                 if latest_perception_data:
                     particle_list_with_ids, obstacle_list = latest_perception_data
                     # 更新粒子歷史
-                    update_particle_states_and_history(particle_list_with_ids, particle_states, config) # 替換為你的更新邏輯
+                    update_particle_states_and_history(particle_list_with_ids, particle_states) # 替換為你的更新邏輯
                     # 更新障礙物列表
                     if particle_obstacles:
                         current_all_obstacles = obstacle_list + particle_obstacles
                     else:
                         current_all_obstacles = obstacle_list
                 
-                if iteration_count != 0 and iteration_count % config['screen_shot_frequency'] == 0 and not is_stuck_simulated:
-                    # 2. 執行決策邏輯：檢查粒子是否「靜止」，是否需要重新規劃等
-                    replan_needed, update_stuck_particle_ids = check_replan_conditions(particle_states, current_commanded_light_pos, config)
-
-    
-                if not is_stuck_simulated and stop_signal_output_queue.empty(): # 確保沒有正在等待的規劃請求
-                    replan_needed = True
-                    particle_obstacles.extend(update_particle_obstacles(stuck_particle_ids, particle_states)) # 根據靜止粒子獲取障礙物列表
-                    # 如果需要重新規劃，將脫離的粒子加入臨時障礙物 (根據 particle_states)
-                    current_all_obstacles = obstacle_list + particle_obstacles
-                    print("Decision: Replan triggered!")
+            if iteration_count != 0 and iteration_count % config['screen_shot_frequency'] == 0 and not is_stuck_simulated:
+                # 2. 執行決策邏輯：檢查粒子是否「靜止」，是否需要重新規劃等
+                replan_needed, update_stuck_particle_ids = check_replan_conditions(particle_states, current_commanded_light_pos, config)
 
 
-                # 3. 如果需要重新規劃，發送規劃請求給 Planning 進程
-                if replan_needed:
-                    planning_request_counter += 1
-                    particle_coor = get_particle_coordinates(particle_states)
-                    # 準備規劃請求數據包
-                    request_data = {
-                        'request_id': planning_request_counter,
-                        'particle_coor': particle_states, # 粒子狀態 
-                        'obstacles': current_all_obstacles
-                    }
-                    print(f"Decision: Sending planning request {planning_request_counter}")
-                    try:
-                        planning_planning_info_output_queue.put_nowait(request_data) # 非阻塞發送請求
-                        replan_needed = False # 請求已發送
-                    except multiprocessing.queues.Full:
-                        # 規劃隊列滿了，規劃進程還沒處理完上一個請求，這次請求被跳過
-                        print("Decision: Planning queue is full, cannot send request.")
-                        pass # 繼續下一輪循環，可能在下一輪重試發送
+            if not is_stuck_simulated and stop_signal_output_queue.empty(): # 確保沒有正在等待的規劃請求
+                replan_needed = True
+                particle_obstacles.extend(update_particle_obstacles(stuck_particle_ids, particle_states)) # 根據靜止粒子獲取障礙物列表
+                # 如果需要重新規劃，將脫離的粒子加入臨時障礙物 (根據 particle_states)
+                current_all_obstacles = obstacle_list + particle_obstacles
+                print("Decision: Replan triggered!")
 
 
-                # 5. 檢查總體任務是否完成 (例如所有粒子都在目標位置)
-                # task_completed = check_overall_task_completion_in_decision(...) # 替換為你的完成判斷邏輯
-                # if task_completed:
-                #      print("Decision: Task completed. Signaling termination.")
-                #      # 發送終止信號給 Planning 和 Execution 進程 (需要額外的機制)
-                #      planning_output_queue.put("TERMINATE") # Planning 需要能接收並處理
-                #      # execution_input_queue 需要能接收並處理 (例如通過另一個 Queue)
-                #      break # 退出主循環
+            # 3. 如果需要重新規劃，發送規劃請求給 Planning 進程
+            if replan_needed:
+                planning_request_counter += 1
+                particle_coor = get_particle_coordinates(particle_states)
+                # 準備規劃請求數據包
+                request_data = {
+                    'request_id': planning_request_counter,
+                    'particle_coor': particle_states, # 粒子狀態 
+                    'obstacles': current_all_obstacles
+                }
+                print(f"Decision: Sending planning request {planning_request_counter}")
+                try:
+                    planning_planning_info_output_queue.put_nowait(request_data) # 非阻塞發送請求
+                    replan_needed = False # 請求已發送
+                except multiprocessing.queues.Full:
+                    # 規劃隊列滿了，規劃進程還沒處理完上一個請求，這次請求被跳過
+                    print("Decision: Planning queue is full, cannot send request.")
+                    pass # 繼續下一輪循環，可能在下一輪重試發送
 
 
-                # 6. 控制循環頻率
-                elapsed_time = time.time() - loop_start_time
-                sleep_time = decision_loop_period - elapsed_time
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                
-                iteration_count += 1
+            # 5. 檢查總體任務是否完成 (例如所有粒子都在目標位置)
+            # task_completed = check_overall_task_completion_in_decision(...) # 替換為你的完成判斷邏輯
+            # if task_completed:
+            #      print("Decision: Task completed. Signaling termination.")
+            #      # 發送終止信號給 Planning 和 Execution 進程 (需要額外的機制)
+            #      planning_output_queue.put("TERMINATE") # Planning 需要能接收並處理
+            #      # execution_input_queue 需要能接收並處理 (例如通過另一個 Queue)
+            #      break # 退出主循環
+
+
+            # 6. 控制循環頻率
+            elapsed_time = time.time() - loop_start_time
+            sleep_time = decision_loop_period - elapsed_time
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            iteration_count += 1
         except Exception as e:
             print(f"Error in Decision process: {e}")
             break
@@ -326,6 +341,8 @@ if __name__ == '__main__':
         'decision_frequency': 5,   # 決策進程根據agent位置歷史檢查的時機，代表每接收到5次感知結果就檢查一次 (Hz)
         'control_frequency': 30,   # 執行進程生成即時投影的影片幀率 (FPS)
         'stuck_pos_tolerance': 5,  # 判斷靜止的位置容忍度 (像素)，表示檢查根據歷史如果移動不到5即代表暫停 (現在影片幀率30fps, stepsize=3, 最大移動速率90pixel/s，yolo偵測頻率1秒檢查10次，表示發送的歷史位置每次最多移動9 pixel)
+        'stuck_time_threshold': 3, # 判斷靜止的時間閾值 (秒)，表示如果在3秒內都沒有移動，則認為粒子靜止 #這是為了不要直接檢查歷史列表中的點，因為實際可能出現延遲、會者因queue滿而被丟棄
+        'history_length': 10, # 粒子歷史記錄的長度 (幀數)，表示最多記錄10幀的歷史位置
     }
 
     # 創建並啟動多程序

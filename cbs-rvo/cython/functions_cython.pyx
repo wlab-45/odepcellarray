@@ -13,6 +13,7 @@ import time
 
 from libc.math cimport sqrt
 from libc.stdlib cimport rand, srand
+from display import display_on_specific_monitor
 
 
 
@@ -75,9 +76,9 @@ cpdef tuple wholestep5_draw_light_image(cnp.ndarray[cnp.uint8_t, ndim=3] arrayim
     
     #resized_light_image= cv2.resize(light_image, dim, interpolation=cv2.INTER_AREA)
     #cv2.imshow('step5: processed image', resized_light_image )
-    light_image_directory="C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\lightimg_with_particle"
-    light_image_path = os.path.join(light_image_directory, f'light_image_{file_name}')
-    cv2.imwrite(light_image_path, light_image)
+    #light_image_directory="C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\lightimg_with_particle"
+    #light_image_path = os.path.join(light_image_directory, f'light_image_{file_name}')
+    #cv2.imwrite(light_image_path, light_image)
     #cv2.waitKey(0)
     #cv2.destroyAllWindows()
     return target_coordinate, light_image, all_sorted_coordinates
@@ -243,9 +244,9 @@ cpdef void whole_step_6_draw_path(int batch_size, cnp.ndarray[cnp.uint8_t, ndim=
     #cv2.imshow("Result of path", resized_image_with_path)
     #cv2.waitKey(0)
     #cv2.destroyAllWindows()
-    path_save_directory = "C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\path_image"
-    path_image_path = os.path.join(path_save_directory, f'path_{file_name}')
-    cv2.imwrite(path_image_path, image_with_paths)
+    #path_save_directory = "C:/Users/Vivo\\CGU\\odep_cellarray\\Cell_Manipulation_Simulation\\virtual_test_image\\path_image"
+    #path_image_path = os.path.join(path_save_directory, f'path_{file_name}')
+    #cv2.imwrite(path_image_path, image_with_paths)
     
 
 
@@ -384,13 +385,14 @@ cdef void simulate_movement(cnp.ndarray[cnp.uint8_t, ndim=3] canvas, int step_si
             #cv2.circle(display_img, (int(round(particle_coor[0])), int(round(particle_coor[1]))), Rp, (0, 0, 250), -1)
 
 
-        scale_percent = 50
-        width = int(display_img.shape[1] * scale_percent / 100)
-        height = int(display_img.shape[0] * scale_percent / 100)
-        dim = (width, height)
-        resized_image = cv2.resize(display_img, dim, interpolation=cv2.INTER_AREA)
+        #scale_percent = 50
+        #width = int(display_img.shape[1] * scale_percent / 100)
+        #height = int(display_img.shape[0] * scale_percent / 100)
+        #dim = (width, height)
+        #resized_image = cv2.resize(display_img, dim, interpolation=cv2.INTER_AREA)
 
-        cv2.imshow('Movement Simulation', resized_image)
+        display_on_specific_monitor(display_img, target_monitor_index=1)
+        #cv2.imshow('Movement Simulation', resized_image)
         out.write(display_img) # 注意這裡仍然寫入全尺寸圖像
 
         # 等待最小時間避免程序卡死且能捕捉鍵盤事件
